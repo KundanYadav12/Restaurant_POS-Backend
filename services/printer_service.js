@@ -340,9 +340,9 @@ class PrinterService {
   /**
    * Dynamic In-Memory Order Reprint
    */
-  static async reprintOrder(restaurantId, orderId) {
+  static async reprintOrder(restaurantId, orderId, printType = 'RECEIPT') {
     await OrderRepository.incrementReprintCount(orderId, restaurantId);
-    await this.enqueueOrderPrintJobs(restaurantId, orderId);
+    await this.enqueueOrderPrintJobs(restaurantId, orderId, [printType]);
     return { message: 'Reprint job enqueued successfully.' };
   }
 }

@@ -190,9 +190,6 @@ class OrderController {
         }
       }
 
-      // Increment count
-      await OrderRepository.incrementReprintCount(req.params.id, restaurantId);
-
       // Trigger dynamic in-memory reprint queue job
       await PrinterService.reprintOrder(restaurantId, req.params.id);
       await SuperAdminRepository.addAuditLog(restaurantId, req.user.id, 'ORDER_REPRINT', `Reprinted order receipt #${orderData.order.unique_order_number}`, req.ip);

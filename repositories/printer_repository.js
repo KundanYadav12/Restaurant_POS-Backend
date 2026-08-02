@@ -32,12 +32,19 @@ class PrinterRepository {
     );
     if (rows.length > 0) return rows[0];
     
-    // Fallback to first active receipt printer
+    // Fallback to first active receipt/counter/all printer
     const [fallback] = await pool.execute(
-      'SELECT * FROM printers WHERE restaurant_id = ? AND (role = "receipt" OR role = "counter") AND is_active = 1 LIMIT 1',
+      'SELECT * FROM printers WHERE restaurant_id = ? AND (role = "receipt" OR role = "counter" OR role = "all") AND is_active = 1 LIMIT 1',
       [restaurantId]
     );
-    return fallback[0] || null;
+    if (fallback.length > 0) return fallback[0];
+
+    // Final fallback to any active printer
+    const [anyPrinter] = await pool.execute(
+      'SELECT * FROM printers WHERE restaurant_id = ? AND is_active = 1 LIMIT 1',
+      [restaurantId]
+    );
+    return anyPrinter[0] || null;
   }
 
   static async getDefaultKOTPrinter(restaurantId) {
@@ -47,12 +54,19 @@ class PrinterRepository {
     );
     if (rows.length > 0) return rows[0];
 
-    // Fallback to first active kitchen printer
+    // Fallback to first active kitchen/kot/all printer
     const [fallback] = await pool.execute(
-      'SELECT * FROM printers WHERE restaurant_id = ? AND (role = "kitchen" OR role = "kot") AND is_active = 1 LIMIT 1',
+      'SELECT * FROM printers WHERE restaurant_id = ? AND (role = "kitchen" OR role = "kot" OR role = "all") AND is_active = 1 LIMIT 1',
       [restaurantId]
     );
-    return fallback[0] || null;
+    if (fallback.length > 0) return fallback[0];
+
+    // Final fallback to any active printer
+    const [anyPrinter] = await pool.execute(
+      'SELECT * FROM printers WHERE restaurant_id = ? AND is_active = 1 LIMIT 1',
+      [restaurantId]
+    );
+    return anyPrinter[0] || null;
   }
 
   static async create(restaurantId, printer) {
