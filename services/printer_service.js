@@ -321,15 +321,9 @@ class PrinterService {
           await this.sendToPrinterSocket(job.ip_address || '127.0.0.1', job.port || 9100, bufferPayload);
           
           await PrintQueueRepository.updateJobStatus(job.id, 'SUCCESS');
-          if (job.printer_id) {
-            await PrinterRepository.updateStatus(job.printer_id, job.restaurant_id, 'online');
-          }
         } catch (jobErr) {
           console.error(`[Print Job ${job.id} Error]`, jobErr.message);
           await PrintQueueRepository.incrementRetry(job.id, jobErr.message);
-          if (job.printer_id) {
-            await PrinterRepository.updateStatus(job.printer_id, job.restaurant_id, 'offline');
-          }
         }
       }
     } catch (err) {
