@@ -8,20 +8,26 @@ class ReportRepository {
     const today = new Date().toISOString().slice(0, 10);
     const datePattern = `${today}%`;
 
-    // 1. Sales & Bills Count
+    // 1. Sales, Bills Count, GST, and Discount totals
     const [salesRow] = await pool.execute(
-      'SELECT COALESCE(SUM(total_amount), 0) as todaySales, COUNT(id) as billsCount, COALESCE(AVG(total_amount), 0) as avgBill ' +
-      'FROM orders WHERE restaurant_id = ? AND cashier_id = ? AND created_at LIKE ? AND order_status != "cancelled"',
+      'SELECT COALESCE(SUM(total_amount), 0) as todaySales, ' +
+      'COUNT(id) as billsCount, ' +
+      'COALESCE(SUM(tax_amount), 0) as gstCollected, ' +
+      'COALESCE(SUM(discount_amount), 0) as discountGiven, ' +
+      'COALESCE(AVG(total_amount), 0) as avgBill ' +
+      'FROM orders WHERE restaurant_id = ? AND cashier_id = ? AND created_at LIKE ? AND order_status = "completed"',
       [restaurantId, cashierId, datePattern]
     );
 
-    // 2. Collection breakdown
+    // 2. Collection breakdown including wallet and other modes
     const [collectionRow] = await pool.execute(
       'SELECT ' +
       'COALESCE(SUM(CASE WHEN payment_mode = "cash" THEN total_amount ELSE 0 END), 0) as cashCollected, ' +
       'COALESCE(SUM(CASE WHEN payment_mode IN ("upi", "gpay", "phonepe", "paytm") THEN total_amount ELSE 0 END), 0) as upiCollected, ' +
-      'COALESCE(SUM(CASE WHEN payment_mode IN ("card", "credit", "debit") THEN total_amount ELSE 0 END), 0) as cardCollected ' +
-      'FROM orders WHERE restaurant_id = ? AND cashier_id = ? AND created_at LIKE ? AND order_status != "cancelled"',
+      'COALESCE(SUM(CASE WHEN payment_mode IN ("card", "credit", "debit") THEN total_amount ELSE 0 END), 0) as cardCollected, ' +
+      'COALESCE(SUM(CASE WHEN payment_mode = "wallet" THEN total_amount ELSE 0 END), 0) as walletCollected, ' +
+      'COALESCE(SUM(CASE WHEN payment_mode NOT IN ("cash", "upi", "gpay", "phonepe", "paytm", "card", "credit", "debit", "wallet") THEN total_amount ELSE 0 END), 0) as otherCollected ' +
+      'FROM orders WHERE restaurant_id = ? AND cashier_id = ? AND created_at LIKE ? AND order_status = "completed"',
       [restaurantId, cashierId, datePattern]
     );
 
@@ -29,11 +35,19 @@ class ReportRepository {
       todaySales: parseFloat(salesRow[0].todaySales),
       billsCount: parseInt(salesRow[0].billsCount),
       avgBill: parseFloat(salesRow[0].avgBill),
+      gstCollected: parseFloat(salesRow[0].gstCollected),
+      discountGiven: parseFloat(salesRow[0].discountGiven),
       collections: {
         cash: parseFloat(collectionRow[0].cashCollected),
         upi: parseFloat(collectionRow[0].upiCollected),
         card: parseFloat(collectionRow[0].cardCollected),
-        total: parseFloat(collectionRow[0].cashCollected) + parseFloat(collectionRow[0].upiCollected) + parseFloat(collectionRow[0].cardCollected)
+        wallet: parseFloat(collectionRow[0].walletCollected),
+        other: parseFloat(collectionRow[0].otherCollected),
+        total: parseFloat(collectionRow[0].cashCollected) + 
+               parseFloat(collectionRow[0].upiCollected) + 
+               parseFloat(collectionRow[0].cardCollected) + 
+               parseFloat(collectionRow[0].walletCollected) + 
+               parseFloat(collectionRow[0].otherCollected)
       }
     };
   }
@@ -142,6 +156,86 @@ class ReportRepository {
     );
     return rows;
   }
+
+  /**
+   * Item-wise Sales Analytics Report
+   */
+  static async getItemWiseSalesReport(restaurantId, { dateFrom, dateTo, categoryId, search, sortBy = 'qtySold', sortOrder = 'DESC' }) {
+    let query = `
+      SELECT 
+        COALESCE(oi.menu_item_id, 0) as item_id,
+        oi.name,
+        COALESCE(c.name, 'Uncategorized') as category_name,
+        mi.sku,
+        SUM(oi.quantity) as qty_sold,
+        SUM(oi.price * oi.quantity) as gross_sales,
+        SUM(oi.discount_amount) as discount_given,
+        SUM(oi.tax_amount) as gst_collected,
+        SUM((oi.price * oi.quantity) - oi.discount_amount) as net_sales,
+        AVG(oi.price) as avg_selling_price,
+        MAX(o.created_at) as last_sold_at
+      FROM order_items oi
+      JOIN orders o ON oi.order_id = o.id
+      LEFT JOIN menu_items mi ON oi.menu_item_id = mi.id
+      LEFT JOIN categories c ON mi.category_id = c.id
+      WHERE o.restaurant_id = ? 
+        AND o.created_at >= ? 
+        AND o.created_at <= ? 
+        AND o.order_status != "cancelled"
+    `;
+
+    const params = [restaurantId, dateFrom, dateTo];
+
+    if (categoryId && categoryId !== 'all') {
+      query += ' AND mi.category_id = ?';
+      params.push(categoryId);
+    }
+
+    if (search && search.trim()) {
+      query += ' AND (oi.name LIKE ? OR mi.sku LIKE ?)';
+      params.push(`%${search.trim()}%`, `%${search.trim()}%`);
+    }
+
+    query += ' GROUP BY oi.menu_item_id, oi.name, c.name, mi.sku';
+
+    const sortCol = sortBy === 'netSales' ? 'net_sales' : sortBy === 'grossSales' ? 'gross_sales' : 'qty_sold';
+    const direction = sortOrder.toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
+    query += ` ORDER BY ${sortCol} ${direction}`;
+
+    const [rows] = await pool.execute(query, params);
+    return rows;
+  }
+
+  /**
+   * Detailed sales transaction history for a specific menu item
+   */
+  static async getItemSalesHistory(restaurantId, itemId, { dateFrom, dateTo, limit = 50 }) {
+    const [rows] = await pool.execute(`
+      SELECT 
+        o.id as order_id,
+        o.unique_order_number,
+        o.cashier_name,
+        o.payment_mode,
+        oi.quantity,
+        oi.price,
+        oi.discount_amount,
+        oi.tax_amount,
+        (oi.price * oi.quantity) as total_item_amount,
+        o.created_at
+      FROM order_items oi
+      JOIN orders o ON oi.order_id = o.id
+      WHERE o.restaurant_id = ? 
+        AND oi.menu_item_id = ?
+        AND o.created_at >= ? 
+        AND o.created_at <= ?
+        AND o.order_status != "cancelled"
+      ORDER BY o.created_at DESC
+      LIMIT ${parseInt(limit) || 50}
+    `, [restaurantId, itemId, dateFrom, dateTo]);
+
+    return rows;
+  }
 }
 
 module.exports = ReportRepository;
+

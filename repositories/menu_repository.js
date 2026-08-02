@@ -47,27 +47,34 @@ class MenuRepository {
   }
 
   static async create(restaurantId, item) {
-    const { category_id, name, sku, barcode, description, price, gst_rate, prep_time_minutes, is_veg, spicy_level, is_available, image_url, seq, kitchen_category, printer_id } = item;
+    const { category_id, name, sku, barcode, description, price, gst_rate, prep_time_minutes, is_veg, spicy_level, is_available, image_url, seq, kitchen_category, printer_id, unit, current_stock, low_stock_threshold, track_inventory } = item;
     const [result] = await pool.execute(
-      'INSERT INTO menu_items (restaurant_id, category_id, name, sku, barcode, description, price, gst_rate, prep_time_minutes, is_veg, spicy_level, is_available, image_url, seq, kitchen_category, printer_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      'INSERT INTO menu_items (restaurant_id, category_id, name, sku, barcode, description, price, gst_rate, prep_time_minutes, is_veg, spicy_level, is_available, image_url, seq, kitchen_category, printer_id, unit, current_stock, low_stock_threshold, track_inventory) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
       [
         restaurantId, category_id, name, sku || null, barcode || null, description || null,
         price, gst_rate || 5.00, prep_time_minutes || 10, is_veg !== undefined ? is_veg : 1,
         spicy_level || 0, is_available !== undefined ? is_available : 1, image_url || null,
-        seq || 0, kitchen_category || 'Main Kitchen', printer_id || null
+        seq || 0, kitchen_category || 'Main Kitchen', printer_id || null,
+        unit || 'pcs', current_stock !== undefined ? current_stock : 100.00,
+        low_stock_threshold !== undefined ? low_stock_threshold : 10.00,
+        track_inventory !== undefined ? track_inventory : 1
       ]
     );
     return result.insertId;
   }
 
   static async update(id, restaurantId, item) {
-    const { category_id, name, sku, barcode, description, price, gst_rate, prep_time_minutes, is_veg, spicy_level, is_available, image_url, seq, kitchen_category, printer_id } = item;
+    const { category_id, name, sku, barcode, description, price, gst_rate, prep_time_minutes, is_veg, spicy_level, is_available, image_url, seq, kitchen_category, printer_id, unit, current_stock, low_stock_threshold, track_inventory } = item;
     const [result] = await pool.execute(
-      'UPDATE menu_items SET category_id = ?, name = ?, sku = ?, barcode = ?, description = ?, price = ?, gst_rate = ?, prep_time_minutes = ?, is_veg = ?, spicy_level = ?, is_available = ?, image_url = ?, seq = ?, kitchen_category = ?, printer_id = ? WHERE id = ? AND restaurant_id = ?',
+      'UPDATE menu_items SET category_id = ?, name = ?, sku = ?, barcode = ?, description = ?, price = ?, gst_rate = ?, prep_time_minutes = ?, is_veg = ?, spicy_level = ?, is_available = ?, image_url = ?, seq = ?, kitchen_category = ?, printer_id = ?, unit = COALESCE(?, unit), current_stock = COALESCE(?, current_stock), low_stock_threshold = COALESCE(?, low_stock_threshold), track_inventory = COALESCE(?, track_inventory) WHERE id = ? AND restaurant_id = ?',
       [
         category_id, name, sku || null, barcode || null, description || null,
         price, gst_rate, prep_time_minutes, is_veg, spicy_level, is_available,
-        image_url || null, seq, kitchen_category, printer_id || null, id, restaurantId
+        image_url || null, seq, kitchen_category, printer_id || null,
+        unit || null, current_stock !== undefined ? current_stock : null,
+        low_stock_threshold !== undefined ? low_stock_threshold : null,
+        track_inventory !== undefined ? track_inventory : null,
+        id, restaurantId
       ]
     );
     return result.affectedRows > 0;

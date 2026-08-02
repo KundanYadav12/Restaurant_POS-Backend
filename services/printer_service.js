@@ -232,28 +232,52 @@ class PrinterService {
     return Buffer.from(cmds, 'utf-8');
   }
 
-  /**
-   * Enqueue Print Job into database print_queue
-   */
-  static async enqueueOrderPrintJobs(restaurantId, orderId) {
+  static async enqueueOrderPrintJobs(restaurantId, orderId, printActions = null) {
     try {
-      // 1. Fetch assigned or default Receipt Printer
-      const receiptPrinter = await PrinterRepository.getDefaultReceiptPrinter(restaurantId);
-      await PrintQueueRepository.enqueue({
-        restaurant_id: restaurantId,
-        order_id: orderId,
-        printer_id: receiptPrinter ? receiptPrinter.id : null,
-        print_type: 'RECEIPT'
-      });
+      let finalActions = [];
 
-      // 2. Fetch assigned or default KOT Printer
-      const kotPrinter = await PrinterRepository.getDefaultKOTPrinter(restaurantId);
-      await PrintQueueRepository.enqueue({
-        restaurant_id: restaurantId,
-        order_id: orderId,
-        printer_id: kotPrinter ? kotPrinter.id : null,
-        print_type: 'KOT'
-      });
+      if (Array.isArray(printActions)) {
+        finalActions = printActions;
+      } else {
+        // Resolve print settings configuration
+        const settings = await ReceiptRepository.getByRestaurantId(restaurantId);
+        
+        // Find order status to see which stage we are at (Stage 1 = pending/confirmed, Stage 2 = completed)
+        const orderRes = await OrderRepository.getById(orderId, restaurantId);
+        const status = orderRes?.order?.order_status || 'completed';
+
+        const stageMode = (status === 'completed') ? settings.print_stage2_mode : settings.print_stage1_mode;
+        
+        if (stageMode === 'print_kot_only') {
+          finalActions = ['KOT'];
+        } else if (stageMode === 'print_receipt_only') {
+          finalActions = ['RECEIPT'];
+        } else if (stageMode === 'print_kot_receipt') {
+          finalActions = ['KOT', 'RECEIPT'];
+        } else {
+          finalActions = []; // save_only or show_popup (and no explicit override was passed)
+        }
+      }
+
+      if (finalActions.includes('RECEIPT')) {
+        const receiptPrinter = await PrinterRepository.getDefaultReceiptPrinter(restaurantId);
+        await PrintQueueRepository.enqueue({
+          restaurant_id: restaurantId,
+          order_id: orderId,
+          printer_id: receiptPrinter ? receiptPrinter.id : null,
+          print_type: 'RECEIPT'
+        });
+      }
+
+      if (finalActions.includes('KOT')) {
+        const kotPrinter = await PrinterRepository.getDefaultKOTPrinter(restaurantId);
+        await PrintQueueRepository.enqueue({
+          restaurant_id: restaurantId,
+          order_id: orderId,
+          printer_id: kotPrinter ? kotPrinter.id : null,
+          print_type: 'KOT'
+        });
+      }
 
       // Process pending queue asynchronously in memory
       this.processPendingQueue();

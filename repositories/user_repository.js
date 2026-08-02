@@ -128,6 +128,14 @@ class UserRepository {
     );
     return rows[0] || null;
   }
+
+  static async closeShift(shiftId, restaurantId) {
+    const [result] = await pool.execute(
+      'UPDATE cashier_shifts SET status = "closed", closed_at = NOW() WHERE id = ? AND restaurant_id = ?',
+      [shiftId, restaurantId]
+    );
+    return result.affectedRows > 0;
+  }
 }
 
 module.exports = UserRepository;

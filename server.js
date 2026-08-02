@@ -14,6 +14,7 @@ const printerRoutes = require('./routes/printer_routes');
 const reportRoutes = require('./routes/report_routes');
 const superAdminRoutes = require('./routes/superadmin_routes');
 const receiptRoutes = require('./routes/receipt_routes');
+const inventoryRoutes = require('./routes/inventory_routes');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -55,6 +56,7 @@ app.use('/api/menu', menuRoutes);
 app.use('/api/orders', orderRoutes);
 app.use('/api/printers', printerRoutes);
 app.use('/api/reports', reportRoutes);
+app.use('/api/inventory', inventoryRoutes);
 app.use('/api/superadmin', superAdminRoutes);
 app.use('/api/settings/receipt', receiptRoutes);
 

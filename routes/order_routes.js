@@ -8,11 +8,16 @@ router.use(authenticateToken);
 // Only cashier role can place active ticket orders
 router.post('/', authorizeRoles('cashier'), OrderController.create);
 router.get('/', OrderController.getAll);
+router.get('/history/list', OrderController.getHistory);
+router.get('/history/export-excel', OrderController.exportHistoryExcel);
+router.get('/history/export-csv', OrderController.exportHistory);
+router.get('/history/export', OrderController.exportHistory);
+router.get('/shift-summary', OrderController.getShiftSummary);
 router.get('/:id', OrderController.getById);
 router.post('/:id/reprint', OrderController.reprint);
 router.put('/:id/kitchen-status', OrderController.updateKitchenStatus);
 
-// Only manager and admin can update general order bill status (refunds, cancellations)
-router.put('/:id/status', authorizeRoles('admin', 'manager'), OrderController.updateStatus);
+// Cashiers can update status to complete held orders; managers/admins can update any status (refunds, cancellations)
+router.put('/:id/status', authorizeRoles('admin', 'manager', 'cashier'), OrderController.updateStatus);
 
 module.exports = router;

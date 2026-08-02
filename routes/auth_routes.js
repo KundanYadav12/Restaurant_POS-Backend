@@ -1,10 +1,10 @@
 const express = require('express');
 const AuthController = require('../controllers/auth_controller');
-const { authenticateToken } = require('../middlewares/auth_middleware');
+const { authenticateToken, optionalAuthenticateToken } = require('../middlewares/auth_middleware');
 const router = express.Router();
 
 router.post('/login', AuthController.login);
-router.post('/logout', authenticateToken, AuthController.logout);
+router.post('/logout', optionalAuthenticateToken, AuthController.logout);
 router.post('/refresh', AuthController.refreshToken);
 router.get('/me', authenticateToken, AuthController.getMe);
 

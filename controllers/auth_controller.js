@@ -346,7 +346,7 @@ class AuthController {
   }
 
   static async logout(req, res) {
-    const ipAddress = req.ip || req.socket.remoteAddress;
+    const ipAddress = req.ip || req.headers['x-forwarded-for'] || req.socket.remoteAddress;
     try {
       const user = req.user;
       if (user && user.role === 'cashier' && user.restaurant_id) {
@@ -359,25 +359,25 @@ class AuthController {
       return res.json({ message: 'Logout successful' });
     } catch (err) {
       console.error('Logout error:', err);
-      return res.status(500).json({ error: 'Internal server error during logout.' });
+      return res.json({ message: 'Logout completed' });
     }
   }
 
   static async refreshToken(req, res) {
-    const { token } = req.body;
+    const token = req.body.token || req.body.refreshToken;
     if (!token) {
-      return res.status(401).json({ error: 'Refresh token is required.' });
+      return res.status(401).json({ error: 'Refresh token is required.', code: 'REFRESH_TOKEN_REQUIRED' });
     }
 
     try {
       const decoded = jwt.verify(token, JWT_REFRESH_SECRET);
       const user = await UserRepository.findById(decoded.id);
       if (!user || !user.is_active) {
-        return res.status(403).json({ error: 'Invalid user or deactivated.' });
+        return res.status(403).json({ error: 'Invalid user or deactivated account.', code: 'USER_INACTIVE' });
       }
 
       let activeShiftId = decoded.shift_id;
-      if (user.role === 'cashier') {
+      if (user.role === 'cashier' && user.restaurant_id) {
         const shift = await UserRepository.getOpenShift(user.restaurant_id, user.id);
         activeShiftId = shift ? shift.id : null;
       }
@@ -389,10 +389,25 @@ class AuthController {
         shift_id: activeShiftId
       };
 
-      const accessToken = jwt.sign(tokenPayload, JWT_SECRET, { expiresIn: '24h' });
-      return res.json({ accessToken });
+      const accessToken = jwt.sign(tokenPayload, JWT_SECRET, { expiresIn: process.env.JWT_EXPIRY || '24h' });
+      const refreshToken = jwt.sign(tokenPayload, JWT_REFRESH_SECRET, { expiresIn: process.env.JWT_REFRESH_EXPIRY || '30d' });
+
+      return res.json({
+        accessToken,
+        refreshToken,
+        user: {
+          id: user.id,
+          name: user.name,
+          username: user.username,
+          email: user.email,
+          role: user.role,
+          restaurant_id: user.restaurant_id,
+          shift_id: activeShiftId
+        }
+      });
     } catch (err) {
-      return res.status(403).json({ error: 'Refresh token is invalid or has expired.' });
+      console.error('Refresh token error:', err.message);
+      return res.status(401).json({ error: 'Refresh token is invalid or has expired.', code: 'REFRESH_TOKEN_EXPIRED' });
     }
   }
 

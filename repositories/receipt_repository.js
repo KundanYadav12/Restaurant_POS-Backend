@@ -54,7 +54,25 @@ class ReceiptRepository {
       kitchen_name: 'Main Kitchen',
       kot_footer_note: 'Prepare with priority',
       show_kot_order_notes: 1,
-      show_kot_time: 1
+      show_kot_time: 1,
+      gst_mode: 'excluded',
+      default_gst_rate: 5.00,
+      print_stage1_mode: 'print_kot_receipt',
+      print_stage2_mode: 'print_receipt_only',
+      allow_cashier_view_all_reports: 0,
+      enable_whatsapp_receipt: 0,
+      whatsapp_business_phone: '',
+      enable_stage2_popup: 1,
+      // Stage 1 popup button toggles
+      stage1_popup_save_only: 1,
+      stage1_popup_receipt_only: 1,
+      stage1_popup_kot_only: 1,
+      stage1_popup_kot_receipt: 1,
+      // Stage 2 popup button toggles
+      stage2_popup_save_only: 1,
+      stage2_popup_receipt_only: 1,
+      stage2_popup_kot_only: 1,
+      stage2_popup_kot_receipt: 1
     };
 
     await pool.query(
@@ -63,8 +81,12 @@ class ReceiptRepository {
         gst_number, fssai_number, logo_url, header_message, footer_message, thank_you_message,
         terms_conditions, paper_size, font_size, header_alignment, show_logo, show_qr_code,
         show_customer_details, show_cashier_name, show_tax_details, show_payment_details,
-        show_footer_notes, kot_header, kitchen_name, kot_footer_note, show_kot_order_notes, show_kot_time
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        show_footer_notes, kot_header, kitchen_name, kot_footer_note, show_kot_order_notes, show_kot_time,
+        gst_mode, default_gst_rate, print_stage1_mode, print_stage2_mode, allow_cashier_view_all_reports,
+        enable_whatsapp_receipt, whatsapp_business_phone, enable_stage2_popup,
+        stage1_popup_save_only, stage1_popup_receipt_only, stage1_popup_kot_only, stage1_popup_kot_receipt,
+        stage2_popup_save_only, stage2_popup_receipt_only, stage2_popup_kot_only, stage2_popup_kot_receipt
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         restaurantId, defaultSettings.restaurant_name, defaultSettings.branch_name, defaultSettings.address,
         defaultSettings.phone, defaultSettings.whatsapp, defaultSettings.email, defaultSettings.website,
@@ -74,7 +96,14 @@ class ReceiptRepository {
         defaultSettings.show_logo, defaultSettings.show_qr_code, defaultSettings.show_customer_details,
         defaultSettings.show_cashier_name, defaultSettings.show_tax_details, defaultSettings.show_payment_details,
         defaultSettings.show_footer_notes, defaultSettings.kot_header, defaultSettings.kitchen_name,
-        defaultSettings.kot_footer_note, defaultSettings.show_kot_order_notes, defaultSettings.show_kot_time
+        defaultSettings.kot_footer_note, defaultSettings.show_kot_order_notes, defaultSettings.show_kot_time,
+        defaultSettings.gst_mode, defaultSettings.default_gst_rate, defaultSettings.print_stage1_mode,
+        defaultSettings.print_stage2_mode, defaultSettings.allow_cashier_view_all_reports,
+        defaultSettings.enable_whatsapp_receipt, defaultSettings.whatsapp_business_phone, defaultSettings.enable_stage2_popup,
+        defaultSettings.stage1_popup_save_only, defaultSettings.stage1_popup_receipt_only,
+        defaultSettings.stage1_popup_kot_only, defaultSettings.stage1_popup_kot_receipt,
+        defaultSettings.stage2_popup_save_only, defaultSettings.stage2_popup_receipt_only,
+        defaultSettings.stage2_popup_kot_only, defaultSettings.stage2_popup_kot_receipt
       ]
     );
 
@@ -99,7 +128,11 @@ class ReceiptRepository {
       'thank_you_message', 'terms_conditions', 'paper_size', 'font_size', 'header_alignment',
       'show_logo', 'show_qr_code', 'show_customer_details', 'show_cashier_name',
       'show_tax_details', 'show_payment_details', 'show_footer_notes',
-      'kot_header', 'kitchen_name', 'kot_footer_note', 'show_kot_order_notes', 'show_kot_time'
+      'kot_header', 'kitchen_name', 'kot_footer_note', 'show_kot_order_notes', 'show_kot_time',
+      'gst_mode', 'default_gst_rate', 'print_stage1_mode', 'print_stage2_mode', 'allow_cashier_view_all_reports',
+      'enable_whatsapp_receipt', 'whatsapp_business_phone', 'enable_stage2_popup',
+      'stage1_popup_save_only', 'stage1_popup_receipt_only', 'stage1_popup_kot_only', 'stage1_popup_kot_receipt',
+      'stage2_popup_save_only', 'stage2_popup_receipt_only', 'stage2_popup_kot_only', 'stage2_popup_kot_receipt'
     ];
 
     const updates = [];

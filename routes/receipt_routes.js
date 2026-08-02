@@ -3,6 +3,7 @@ const router = express.Router();
 const { authenticateToken, authorizeRoles } = require('../middlewares/auth_middleware');
 const ReceiptRepository = require('../repositories/receipt_repository');
 const SuperAdminRepository = require('../repositories/superadmin_repository');
+const PrinterRepository = require('../repositories/printer_repository');
 const PrinterService = require('../services/printer_service');
 
 // GET /api/settings/receipt - Fetch settings
@@ -21,15 +22,8 @@ router.get('/', authenticateToken, async (req, res) => {
 router.post('/', authenticateToken, authorizeRoles('admin', 'manager', 'super_admin', 'superadmin'), async (req, res) => {
   try {
     const restaurantId = req.user.restaurant_id || req.body.restaurant_id || 1;
-    const updated = await ReceiptRepository.update(restaurantId, req.body);
-    await SuperAdminRepository.addAuditLog(
-      restaurantId,
-      req.user.id,
-      'UPDATE_RECEIPT_SETTINGS',
-      'Updated dynamic receipt and KOT print settings',
-      req.ip
-    );
-    return res.json({ message: 'Receipt & KOT settings updated successfully.', settings: updated });
+    const updatedSettings = await ReceiptRepository.update(restaurantId, req.body);
+    return res.json({ message: 'Receipt & KOT settings updated successfully.', settings: updatedSettings });
   } catch (err) {
     console.error('Update receipt settings error:', err);
     return res.status(500).json({ error: 'Failed to update receipt settings: ' + err.message });
@@ -40,7 +34,7 @@ router.post('/', authenticateToken, authorizeRoles('admin', 'manager', 'super_ad
 router.post('/test-print', authenticateToken, authorizeRoles('admin', 'manager', 'super_admin', 'superadmin'), async (req, res) => {
   try {
     const restaurantId = req.user.restaurant_id || req.body.restaurant_id || 1;
-    const printType = req.body.print_type || 'BOTH'; // RECEIPT, KOT, or BOTH
+    const printType = (req.body.print_type || 'BOTH').toUpperCase(); // RECEIPT, KOT, or BOTH
 
     // Sample mock order for test print
     const sampleOrder = {
@@ -66,20 +60,72 @@ router.post('/test-print', authenticateToken, authorizeRoles('admin', 'manager',
     const restaurant = (await SuperAdminRepository.getRestaurantById(restaurantId)) || { name: req.user.restaurant_name || 'RESTAURANT POS' };
     const receiptSettings = await ReceiptRepository.getByRestaurantId(restaurantId);
 
+    const results = [];
+    const errors = [];
+
+    const sendTestJob = async (type) => {
+      let printer = null;
+      if (type === 'RECEIPT') {
+        printer = await PrinterRepository.getDefaultReceiptPrinter(restaurantId);
+      } else if (type === 'KOT') {
+        printer = await PrinterRepository.getDefaultKOTPrinter(restaurantId);
+      }
+
+      if (!printer) {
+        const allPrinters = await PrinterRepository.getAll(restaurantId);
+        printer = allPrinters.find(p => p.is_active === 1) || allPrinters[0] || null;
+      }
+
+      if (!printer) {
+        throw new Error(`No active printer found for ${type}. Please add a printer in Printers tab first.`);
+      }
+
+      const payload = type === 'KOT'
+        ? PrinterService.buildKOTPayload(sampleOrder, sampleItems, printer, receiptSettings)
+        : PrinterService.buildReceiptPayload(sampleOrder, sampleItems, restaurant, printer, receiptSettings);
+
+      const targetIp = printer.ip_address || '127.0.0.1';
+      const targetPort = printer.port || 9100;
+
+      await PrinterService.sendToPrinterSocket(targetIp, targetPort, payload);
+      await PrinterRepository.updateStatus(printer.id, restaurantId, 'online');
+      
+      return `${type} sent to "${printer.name}" (${targetIp}:${targetPort})`;
+    };
+
     if (printType === 'RECEIPT' || printType === 'BOTH') {
-      const receiptBuffer = PrinterService.buildReceiptPayload(sampleOrder, sampleItems, restaurant, null, receiptSettings);
-      await PrinterService.sendToPrinterSocket('127.0.0.1', 9100, receiptBuffer);
+      try {
+        const msg = await sendTestJob('RECEIPT');
+        results.push(msg);
+      } catch (err) {
+        console.error('Receipt test print error:', err.message);
+        errors.push(`Receipt error: ${err.message}`);
+      }
     }
 
     if (printType === 'KOT' || printType === 'BOTH') {
-      const kotBuffer = PrinterService.buildKOTPayload(sampleOrder, sampleItems, null, receiptSettings);
-      await PrinterService.sendToPrinterSocket('127.0.0.1', 9100, kotBuffer);
+      try {
+        const msg = await sendTestJob('KOT');
+        results.push(msg);
+      } catch (err) {
+        console.error('KOT test print error:', err.message);
+        errors.push(`KOT error: ${err.message}`);
+      }
     }
 
-    return res.json({ message: `Test ${printType} dispatched to virtual/network thermal printer successfully.` });
+    if (errors.length > 0 && results.length === 0) {
+      return res.status(500).json({ error: errors.join(' | ') });
+    }
+
+    let message = results.join(' & ');
+    if (errors.length > 0) {
+      message += ` (Warnings: ${errors.join(' | ')})`;
+    }
+
+    return res.json({ message: `Test print successful! ${message}` });
   } catch (err) {
-    console.error('Test print error:', err);
-    return res.status(500).json({ error: 'Failed to execute test print.' });
+    console.error('Test print route error:', err);
+    return res.status(500).json({ error: err.message || 'Failed to execute test print.' });
   }
 });
 

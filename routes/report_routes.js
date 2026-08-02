@@ -10,6 +10,13 @@ router.get('/cashier', ReportController.getCashierDashboard);
 
 // Managers and Admins can query aggregate reports and trigger downloads
 router.get('/admin', authorizeRoles('admin', 'manager'), ReportController.getAdminDashboard);
+router.get('/export/sales-excel', authorizeRoles('admin', 'manager'), ReportController.exportSalesExcel);
 router.get('/export/sales-csv', authorizeRoles('admin', 'manager'), ReportController.exportSalesCSV);
+
+// Item-wise Sales Analytics routes
+router.get('/item-wise/export-excel', authorizeRoles('admin', 'manager'), ReportController.exportItemSalesExcel);
+router.get('/item-wise/export-csv', authorizeRoles('admin', 'manager'), ReportController.exportItemSalesCSV);
+router.get('/item-wise/:id/history', authorizeRoles('admin', 'manager'), ReportController.getItemSalesHistory);
+router.get('/item-wise', authorizeRoles('admin', 'manager'), ReportController.getItemWiseReport);
 
 module.exports = router;

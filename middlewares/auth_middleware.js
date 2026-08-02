@@ -63,8 +63,34 @@ async function authenticateToken(req, res, next) {
     next();
   } catch (err) {
     console.error('JWT Verification Error:', err.message);
-    return res.status(403).json({ error: 'Token is invalid or has expired.' });
+    return res.status(401).json({ error: 'Token is invalid or has expired.', code: 'TOKEN_EXPIRED' });
   }
+}
+
+/**
+ * Optional authentication middleware (decodes token if present/valid, but does not block on expiration)
+ */
+function optionalAuthenticateToken(req, res, next) {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
+
+  if (!token) {
+    req.user = null;
+    return next();
+  }
+
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'super-secret-pos-key-12345');
+    req.user = decoded;
+  } catch (err) {
+    try {
+      const decoded = jwt.decode(token);
+      req.user = decoded;
+    } catch (dErr) {
+      req.user = null;
+    }
+  }
+  next();
 }
 
 /**
@@ -95,5 +121,6 @@ function authorizeRoles(...allowedRoles) {
 
 module.exports = {
   authenticateToken,
+  optionalAuthenticateToken,
   authorizeRoles
 };
