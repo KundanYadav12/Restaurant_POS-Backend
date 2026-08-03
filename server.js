@@ -15,6 +15,8 @@ const reportRoutes = require('./routes/report_routes');
 const superAdminRoutes = require('./routes/superadmin_routes');
 const receiptRoutes = require('./routes/receipt_routes');
 const inventoryRoutes = require('./routes/inventory_routes');
+const agentRoutes = require('./routes/agent_routes');
+const syncRoutes = require('./routes/sync_routes');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -59,6 +61,8 @@ app.use('/api/reports', reportRoutes);
 app.use('/api/inventory', inventoryRoutes);
 app.use('/api/superadmin', superAdminRoutes);
 app.use('/api/settings/receipt', receiptRoutes);
+app.use('/api/agent', agentRoutes);
+app.use('/api/sync', syncRoutes);
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {

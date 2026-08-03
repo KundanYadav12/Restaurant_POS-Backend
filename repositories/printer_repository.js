@@ -131,6 +131,14 @@ class PrinterRepository {
     return result.affectedRows > 0;
   }
 
+  static async updateHeartbeat(id, restaurantId, status) {
+    const [result] = await pool.execute(
+      'UPDATE printers SET status = ?, last_heartbeat_at = NOW(), updated_at = NOW() WHERE id = ? AND restaurant_id = ?',
+      [status, id, restaurantId]
+    );
+    return result.affectedRows > 0;
+  }
+
   static async delete(id, restaurantId) {
     const [result] = await pool.execute(
       'DELETE FROM printers WHERE id = ? AND restaurant_id = ?',

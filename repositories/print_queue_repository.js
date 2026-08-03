@@ -2,20 +2,42 @@ const pool = require('../config/db');
 
 class PrintQueueRepository {
   /**
-   * Enqueue a new print job into the print_queue table
+   * Enqueue a new print job into the print_queue table with pre-formatted ESC/POS payload
    */
   static async enqueue(job) {
-    const { restaurant_id, order_id, printer_id, print_type } = job;
+    const { restaurant_id, order_id, printer_id, print_type, payload_base64 } = job;
     const [result] = await pool.execute(
-      'INSERT INTO print_queue (restaurant_id, order_id, printer_id, print_type, status, retry_count, created_at) ' +
-      'VALUES (?, ?, ?, ?, "PENDING", 0, NOW())',
-      [restaurant_id, order_id, printer_id || null, print_type || 'RECEIPT']
+      'INSERT INTO print_queue (restaurant_id, order_id, printer_id, payload_base64, print_type, status, retry_count, created_at) ' +
+      'VALUES (?, ?, ?, ?, ?, "PENDING", 0, NOW())',
+      [
+        restaurant_id, 
+        order_id, 
+        printer_id || null, 
+        payload_base64 || null, 
+        print_type || 'RECEIPT'
+      ]
     );
     return result.insertId;
   }
 
   /**
-   * Fetch all pending print jobs
+   * Fetch pending print jobs specifically for a restaurant outlet (used by Local Print Agent)
+   */
+  static async getPendingJobsForRestaurant(restaurantId, limit = 20) {
+    const parsedLimit = Math.max(1, parseInt(limit) || 20);
+    const [rows] = await pool.query(
+      `SELECT q.*, p.name as printer_name, p.ip_address, p.port, p.paper_width, p.role, p.type as printer_type, p.auto_cut, p.cash_drawer 
+       FROM print_queue q 
+       LEFT JOIN printers p ON q.printer_id = p.id 
+       WHERE q.restaurant_id = ? AND q.status = "PENDING" AND q.retry_count < 3 
+       ORDER BY q.id ASC LIMIT ${parsedLimit}`,
+      [restaurantId]
+    );
+    return rows;
+  }
+
+  /**
+   * Fetch all pending print jobs across all outlets
    */
   static async getPendingJobs(limit = 20) {
     const parsedLimit = Math.max(1, parseInt(limit) || 20);

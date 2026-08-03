@@ -259,28 +259,40 @@ class PrinterService {
         }
       }
 
-      if (finalActions.includes('RECEIPT')) {
+      // Fetch order details for payload generation
+      const orderRes = await OrderRepository.getById(orderId, restaurantId);
+      const order = orderRes ? (orderRes.order || orderRes) : null;
+      const items = orderRes && orderRes.items ? orderRes.items : (await OrderRepository.getOrderItems(orderId));
+      const restaurant = await SuperAdminRepository.getRestaurantById(restaurantId);
+      const receiptSettings = await ReceiptRepository.getByRestaurantId(restaurantId);
+
+      if (finalActions.includes('RECEIPT') && order && restaurant) {
         const receiptPrinter = await PrinterRepository.getDefaultReceiptPrinter(restaurantId);
+        const receiptBuffer = this.buildReceiptPayload(order, items, restaurant, receiptPrinter, receiptSettings);
+        
         await PrintQueueRepository.enqueue({
           restaurant_id: restaurantId,
           order_id: orderId,
           printer_id: receiptPrinter ? receiptPrinter.id : null,
-          print_type: 'RECEIPT'
+          print_type: 'RECEIPT',
+          payload_base64: receiptBuffer ? receiptBuffer.toString('base64') : null
         });
       }
 
-      if (finalActions.includes('KOT')) {
+      if (finalActions.includes('KOT') && order && restaurant) {
         const kotPrinter = await PrinterRepository.getDefaultKOTPrinter(restaurantId);
+        const kotBuffer = this.buildKOTPayload(order, items, kotPrinter, receiptSettings);
+
         await PrintQueueRepository.enqueue({
           restaurant_id: restaurantId,
           order_id: orderId,
           printer_id: kotPrinter ? kotPrinter.id : null,
-          print_type: 'KOT'
+          print_type: 'KOT',
+          payload_base64: kotBuffer ? kotBuffer.toString('base64') : null
         });
       }
 
-      // Process pending queue asynchronously in memory
-      this.processPendingQueue();
+      console.log(`[Printer Engine] Print job enqueued for local gateway agent (Order #${order?.unique_order_number || orderId})`);
     } catch (err) {
       console.error('[Printer Queue Enqueue Error]', err);
     }
