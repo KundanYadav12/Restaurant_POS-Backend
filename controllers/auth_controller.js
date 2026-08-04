@@ -5,8 +5,7 @@ const UserRepository = require('../repositories/user_repository');
 const SuperAdminRepository = require('../repositories/superadmin_repository');
 const OTPService = require('../services/otp_service');
 
-const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-pos-key-12345';
-const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || 'another-super-secret-refresh-key-67890';
+const { JWT_SECRET, JWT_REFRESH_SECRET, JWT_EXPIRY, JWT_REFRESH_EXPIRY } = require('../config/jwt_config');
 
 class AuthController {
   static async login(req, res) {
@@ -57,8 +56,8 @@ class AuthController {
         shift_id: activeShiftId
       };
 
-      const accessToken = jwt.sign(tokenPayload, JWT_SECRET, { expiresIn: process.env.JWT_EXPIRY || '24h' });
-      const refreshToken = jwt.sign(tokenPayload, JWT_REFRESH_SECRET, { expiresIn: process.env.JWT_REFRESH_EXPIRY || '30d' });
+      const accessToken = jwt.sign(tokenPayload, JWT_SECRET, { expiresIn: JWT_EXPIRY });
+      const refreshToken = jwt.sign(tokenPayload, JWT_REFRESH_SECRET, { expiresIn: JWT_REFRESH_EXPIRY });
 
       await pool.query('UPDATE users SET last_login_at = NOW() WHERE id = ?', [user.id]);
       await SuperAdminRepository.addAuditLog(user.restaurant_id, user.id, 'LOGIN', 'Logged into the system successfully', ipAddress);
@@ -226,8 +225,8 @@ class AuthController {
         role: user.role
       };
 
-      const accessToken = jwt.sign(tokenPayload, JWT_SECRET, { expiresIn: '24h' });
-      const refreshToken = jwt.sign(tokenPayload, JWT_REFRESH_SECRET, { expiresIn: '30d' });
+      const accessToken = jwt.sign(tokenPayload, JWT_SECRET, { expiresIn: JWT_EXPIRY });
+      const refreshToken = jwt.sign(tokenPayload, JWT_REFRESH_SECRET, { expiresIn: JWT_REFRESH_EXPIRY });
 
       await SuperAdminRepository.addAuditLog(user.restaurant_id, user.id, 'ACCOUNT_ACTIVATE', 'Owner account activated via OTP & password set.', req.ip);
 
@@ -424,8 +423,8 @@ class AuthController {
         shift_id: activeShiftId
       };
 
-      const accessToken = jwt.sign(tokenPayload, JWT_SECRET, { expiresIn: process.env.JWT_EXPIRY || '24h' });
-      const refreshToken = jwt.sign(tokenPayload, JWT_REFRESH_SECRET, { expiresIn: process.env.JWT_REFRESH_EXPIRY || '30d' });
+      const accessToken = jwt.sign(tokenPayload, JWT_SECRET, { expiresIn: JWT_EXPIRY });
+      const refreshToken = jwt.sign(tokenPayload, JWT_REFRESH_SECRET, { expiresIn: JWT_REFRESH_EXPIRY });
 
       return res.json({
         accessToken,

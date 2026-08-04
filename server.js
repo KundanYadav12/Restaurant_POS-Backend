@@ -21,6 +21,9 @@ const syncRoutes = require('./routes/sync_routes');
 const app = express();
 const PORT = process.env.PORT || 5000;
 
+// Configure Express for Production Reverse Proxy / Nginx
+app.set('trust proxy', 1);
+
 // Security Middlewares
 app.use(helmet({
   crossOriginResourcePolicy: { policy: "cross-origin" }
@@ -29,10 +32,12 @@ app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Rate Limiter
+// Rate Limiter with Nginx Proxy Support
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 500, // Limit each IP to 500 requests per window
+  standardHeaders: true,
+  legacyHeaders: false,
   message: { error: 'Too many requests from this IP, please try again after 15 minutes' }
 });
 app.use('/api/', limiter);

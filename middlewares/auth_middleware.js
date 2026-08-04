@@ -1,5 +1,6 @@
 const jwt = require('jsonwebtoken');
 const pool = require('../config/db');
+const { JWT_SECRET } = require('../config/jwt_config');
 
 /**
  * Main authentication middleware
@@ -13,7 +14,7 @@ async function authenticateToken(req, res, next) {
   }
 
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'super-secret-pos-key-12345');
+    const decoded = jwt.verify(token, JWT_SECRET);
     
     // Fetch user details to verify state
     const [rows] = await pool.execute(
@@ -80,7 +81,7 @@ function optionalAuthenticateToken(req, res, next) {
   }
 
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'super-secret-pos-key-12345');
+    const decoded = jwt.verify(token, JWT_SECRET);
     req.user = decoded;
   } catch (err) {
     try {

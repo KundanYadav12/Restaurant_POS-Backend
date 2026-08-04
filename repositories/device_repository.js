@@ -51,6 +51,20 @@ class DeviceRepository {
     );
     return rows;
   }
+
+  /**
+   * Check if a restaurant has an active Desktop Print Gateway device seen recently (last 15 minutes)
+   */
+  static async hasActiveGatewayDevice(restaurantId) {
+    if (!restaurantId) return false;
+    const [rows] = await pool.execute(
+      `SELECT id FROM restaurant_devices 
+       WHERE restaurant_id = ? AND status = 'online' AND last_seen_at >= NOW() - INTERVAL 15 MINUTE 
+       LIMIT 1`,
+      [restaurantId]
+    );
+    return rows.length > 0;
+  }
 }
 
 module.exports = DeviceRepository;

@@ -4,6 +4,7 @@ const PrintQueueRepository = require('../repositories/print_queue_repository');
 const OrderRepository = require('../repositories/order_repository');
 const SuperAdminRepository = require('../repositories/superadmin_repository');
 const ReceiptRepository = require('../repositories/receipt_repository');
+const DeviceRepository = require('../repositories/device_repository');
 
 // Low-level ESC/POS Commands
 const ESC = '\x1B';
@@ -307,6 +308,21 @@ class PrinterService {
       if (!pendingJobs || pendingJobs.length === 0) return;
 
       for (const job of pendingJobs) {
+        // Prevent cloud backend from socket printing when Desktop Print Gateway is active for the outlet
+        const hasGateway = await DeviceRepository.hasActiveGatewayDevice(job.restaurant_id);
+        if (hasGateway) {
+          // Job is reserved for Desktop Print Gateway polling via /api/agent/poll-jobs
+          continue;
+        }
+
+        // Only attempt direct socket printing if IP is non-private or virtual mock
+        const targetIp = job.ip_address || '';
+        const isPrivateLanIp = targetIp.startsWith('192.168.') || targetIp.startsWith('10.') || targetIp.startsWith('172.');
+        if (process.env.NODE_ENV === 'production' && isPrivateLanIp) {
+          // Cloud backend cannot reach local LAN IP directly; leave in queue for gateway
+          continue;
+        }
+
         await PrintQueueRepository.updateJobStatus(job.id, 'PRINTING');
 
         try {
@@ -335,7 +351,11 @@ class PrinterService {
           await PrintQueueRepository.updateJobStatus(job.id, 'SUCCESS');
         } catch (jobErr) {
           console.error(`[Print Job ${job.id} Error]`, jobErr.message);
-          await PrintQueueRepository.incrementRetry(job.id, jobErr.message);
+          if ((job.retry_count || 0) >= 2) {
+            await PrintQueueRepository.updateJobStatus(job.id, 'FAILED', jobErr.message);
+          } else {
+            await PrintQueueRepository.incrementRetry(job.id, jobErr.message);
+          }
         }
       }
     } catch (err) {
