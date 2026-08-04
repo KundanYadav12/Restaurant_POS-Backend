@@ -207,6 +207,78 @@ class ReportRepository {
   }
 
   /**
+   * CA-Ready GST Slab Summary & Invoice Audit Trail Report
+   */
+  static async getGstSlabReport(restaurantId, dateFrom, dateTo, paymentMode = 'all') {
+    let paymentFilterSql = '';
+    const params = [restaurantId, dateFrom, dateTo];
+
+    if (paymentMode && paymentMode !== 'all') {
+      paymentFilterSql = ' AND o.payment_mode = ?';
+      params.push(paymentMode);
+    }
+
+    // 1. Fetch GST Slabs Breakdown (0%, 5%, 12%, 18%, 28%)
+    const [slabRows] = await pool.execute(
+      `SELECT 
+        COALESCE(oi.gst_rate, 0.00) as gst_rate,
+        SUM(
+          CASE 
+            WHEN rs.gst_mode = 'included' THEN (oi.price / (1 + (COALESCE(oi.gst_rate, 0) / 100))) * oi.quantity
+            ELSE (oi.price * oi.quantity)
+          END
+        ) as taxable_amount,
+        SUM(oi.tax_amount) as total_gst,
+        COUNT(DISTINCT o.id) as invoice_count
+       FROM order_items oi
+       JOIN orders o ON oi.order_id = o.id
+       LEFT JOIN receipt_settings rs ON o.restaurant_id = rs.restaurant_id
+       WHERE o.restaurant_id = ? 
+         AND o.created_at >= ? 
+         AND o.created_at <= ? 
+         AND o.order_status = 'completed'${paymentFilterSql}
+       GROUP BY COALESCE(oi.gst_rate, 0.00)
+       ORDER BY gst_rate ASC`,
+      params
+    );
+
+    // 2. Fetch Itemized B2C Invoice Audit Trail
+    const [invoiceRows] = await pool.execute(
+      `SELECT 
+        o.id,
+        o.unique_order_number,
+        o.created_at,
+        o.customer_name,
+        o.customer_phone,
+        o.payment_mode,
+        o.table_number_or_takeaway,
+        o.subtotal,
+        o.tax_amount,
+        o.discount_amount,
+        o.total_amount
+       FROM orders o
+       WHERE o.restaurant_id = ? 
+         AND o.created_at >= ? 
+         AND o.created_at <= ? 
+         AND o.order_status = 'completed'${paymentFilterSql}
+       ORDER BY o.id DESC`,
+      params
+    );
+
+    // 3. Fetch Restaurant & GSTIN Header info
+    const [receiptRows] = await pool.execute(
+      'SELECT restaurant_name, branch_name, address, phone, gst_number FROM receipt_settings WHERE restaurant_id = ?',
+      [restaurantId]
+    );
+
+    return {
+      restaurantInfo: receiptRows[0] || {},
+      slabs: slabRows,
+      invoices: invoiceRows
+    };
+  }
+
+  /**
    * Detailed sales transaction history for a specific menu item
    */
   static async getItemSalesHistory(restaurantId, itemId, { dateFrom, dateTo, limit = 50 }) {

@@ -1,5 +1,5 @@
 const ReportRepository = require('../repositories/report_repository');
-const { generateExcelWorkbook } = require('../utils/excel_helper');
+const { generateExcelWorkbook, generateGstSlabExcelWorkbook } = require('../utils/excel_helper');
 
 class ReportController {
   /**
@@ -281,6 +281,96 @@ class ReportController {
     } catch (err) {
       console.error(err);
       return res.status(500).json({ error: 'Failed to generate item sales CSV export.' });
+    }
+  }
+
+  /**
+   * Get GST Slab Report JSON summary for live dashboard display
+   */
+  static async getGstSlabReport(req, res) {
+    const dateTo = req.query.date_to || new Date().toISOString().slice(0, 19).replace('T', ' ');
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    const dateFrom = req.query.date_from || thirtyDaysAgo.toISOString().slice(0, 19).replace('T', ' ');
+    const paymentMode = req.query.payment_mode || 'all';
+
+    try {
+      const restaurantId = req.user.restaurant_id;
+      const reportData = await ReportRepository.getGstSlabReport(restaurantId, dateFrom, dateTo, paymentMode);
+
+      // Map standard GST rates (0%, 5%, 12%, 18%, 28%)
+      const standardRates = [0, 5, 12, 18, 28];
+      const formattedSlabs = standardRates.map(rate => {
+        const found = reportData.slabs.find(s => Math.round(parseFloat(s.gst_rate)) === rate) || {};
+        const taxableAmount = parseFloat(found.taxable_amount || 0);
+        const totalGst = parseFloat(found.total_gst || 0);
+        const cgstAmount = totalGst / 2;
+        const sgstAmount = totalGst / 2;
+        const igstAmount = 0.00;
+        const invoiceValue = taxableAmount + totalGst;
+        const invoiceCount = parseInt(found.invoice_count || 0);
+
+        return {
+          gst_rate: rate,
+          taxable_amount: taxableAmount,
+          cgst_rate: rate / 2,
+          cgst_amount: cgstAmount,
+          sgst_rate: rate / 2,
+          sgst_amount: sgstAmount,
+          igst_rate: 0,
+          igst_amount: igstAmount,
+          total_gst: totalGst,
+          invoice_value: invoiceValue,
+          invoice_count: invoiceCount
+        };
+      });
+
+      return res.json({
+        restaurant_info: reportData.restaurantInfo,
+        slabs: formattedSlabs,
+        total_invoices_count: reportData.invoices.length,
+        date_from: dateFrom,
+        date_to: dateTo,
+        payment_mode: paymentMode
+      });
+    } catch (err) {
+      console.error('[GST Slab Report Error]', err);
+      return res.status(500).json({ error: 'Failed to retrieve GST Slab report.' });
+    }
+  }
+
+  /**
+   * Export CA-Ready GST Slab Excel (.xlsx) file
+   */
+  static async exportGstSlabExcel(req, res) {
+    const dateTo = req.query.date_to || new Date().toISOString().slice(0, 19).replace('T', ' ');
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    const dateFrom = req.query.date_from || thirtyDaysAgo.toISOString().slice(0, 19).replace('T', ' ');
+    const paymentMode = req.query.payment_mode || 'all';
+
+    try {
+      const restaurantId = req.user.restaurant_id;
+      const reportData = await ReportRepository.getGstSlabReport(restaurantId, dateFrom, dateTo, paymentMode);
+
+      const buffer = await generateGstSlabExcelWorkbook({
+        restaurantInfo: reportData.restaurantInfo,
+        slabs: reportData.slabs,
+        invoices: reportData.invoices,
+        dateFrom,
+        dateTo,
+        paymentMode
+      });
+
+      const startDateStr = dateFrom.slice(0, 10);
+      const endDateStr = dateTo.slice(0, 10);
+
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.setHeader('Content-Disposition', `attachment; filename=GST_Slab_CA_Report_${startDateStr}_to_${endDateStr}.xlsx`);
+      return res.send(buffer);
+    } catch (err) {
+      console.error('[GST Slab Excel Export Error]', err);
+      return res.status(500).json({ error: 'Failed to generate GST Slab Excel report.' });
     }
   }
 }

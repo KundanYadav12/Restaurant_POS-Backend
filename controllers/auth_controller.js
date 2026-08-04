@@ -86,6 +86,41 @@ class AuthController {
   }
 
   /**
+   * Get current authenticated user session & verify active state
+   */
+  static async getMe(req, res) {
+    try {
+      const user = await UserRepository.findById(req.user.id);
+      if (!user || !user.is_active) {
+        return res.status(401).json({ error: 'User session is inactive or invalid.' });
+      }
+
+      const restaurant = user.restaurant_id 
+        ? await SuperAdminRepository.getRestaurantById(user.restaurant_id) 
+        : null;
+
+      const userProfile = {
+        id: user.id,
+        restaurant_id: user.restaurant_id,
+        restaurant_name: restaurant ? restaurant.name : null,
+        name: user.name,
+        username: user.username,
+        email: user.email,
+        role: user.role,
+        is_active: user.is_active,
+        must_change_password: Boolean(user.must_change_password),
+        is_verified: Boolean(user.is_verified),
+        shift_id: req.user.shift_id || null
+      };
+
+      return res.json({ user: userProfile });
+    } catch (err) {
+      console.error('[GetMe Error]', err);
+      return res.status(500).json({ error: 'Failed to retrieve current user session.' });
+    }
+  }
+
+  /**
    * Request OTP verification code
    */
   static async sendOTP(req, res) {

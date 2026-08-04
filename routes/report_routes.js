@@ -19,4 +19,8 @@ router.get('/item-wise/export-csv', authorizeRoles('admin', 'manager'), ReportCo
 router.get('/item-wise/:id/history', authorizeRoles('admin', 'manager'), ReportController.getItemSalesHistory);
 router.get('/item-wise', authorizeRoles('admin', 'manager'), ReportController.getItemWiseReport);
 
+// CA-Ready GST Slab Report routes
+router.get('/gst-slab/export-excel', authorizeRoles('admin', 'manager'), ReportController.exportGstSlabExcel);
+router.get('/gst-slab', authorizeRoles('admin', 'manager'), ReportController.getGstSlabReport);
+
 module.exports = router;

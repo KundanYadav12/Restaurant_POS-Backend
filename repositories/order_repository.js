@@ -41,11 +41,32 @@ class OrderRepository {
       );
       const gstMode = settingsRows[0]?.gst_mode || 'excluded';
 
-      // 2. Generate unique readable order number
-      // Format: ORD-YYYYMMDD-HHMMSS-RAND
-      const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
-      const rand = Math.floor(1000 + Math.random() * 9000);
-      const uniqueOrderNumber = `ORD-${dateStr}-${rand}`;
+      // 2. Generate sequential daily order number (Format: ORD-YYYYMMDD-0001)
+      const now = new Date();
+      const year = now.getFullYear();
+      const month = String(now.getMonth() + 1).padStart(2, '0');
+      const day = String(now.getDate()).padStart(2, '0');
+      const dateStr = `${year}${month}${day}`;
+      const datePrefix = `ORD-${dateStr}-`;
+
+      // Query latest order for today with FOR UPDATE row lock to prevent concurrency race conditions
+      const [latestOrderRows] = await connection.execute(
+        'SELECT unique_order_number FROM orders WHERE restaurant_id = ? AND unique_order_number LIKE ? ORDER BY id DESC LIMIT 1 FOR UPDATE',
+        [restaurantId, `${datePrefix}%`]
+      );
+
+      let seq = 1;
+      if (latestOrderRows.length > 0) {
+        const lastOrderNum = latestOrderRows[0].unique_order_number;
+        const parts = lastOrderNum.split('-');
+        const lastSeq = parseInt(parts[parts.length - 1], 10);
+        if (!isNaN(lastSeq)) {
+          seq = lastSeq + 1;
+        }
+      }
+
+      const seqStr = String(seq).padStart(4, '0');
+      const uniqueOrderNumber = `${datePrefix}${seqStr}`;
 
       // 3. Insert Order
       const [orderResult] = await connection.execute(
