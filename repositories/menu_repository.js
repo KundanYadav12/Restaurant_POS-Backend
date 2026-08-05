@@ -51,11 +51,24 @@ class MenuRepository {
     const [result] = await pool.execute(
       'INSERT INTO menu_items (restaurant_id, category_id, name, sku, barcode, description, price, gst_rate, prep_time_minutes, is_veg, spicy_level, is_available, image_url, seq, kitchen_category, printer_id, unit, current_stock, low_stock_threshold, track_inventory) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
       [
-        restaurantId, category_id, name, sku || null, barcode || null, description || null,
-        price, gst_rate || 5.00, prep_time_minutes || 10, is_veg !== undefined ? is_veg : 1,
-        spicy_level || 0, is_available !== undefined ? is_available : 1, image_url || null,
-        seq || 0, kitchen_category || 'Main Kitchen', printer_id || null,
-        unit || 'pcs', current_stock !== undefined ? current_stock : 100.00,
+        restaurantId,
+        category_id,
+        name || '',
+        sku || null,
+        barcode || null,
+        description || null,
+        price !== undefined ? price : 0,
+        gst_rate !== undefined ? gst_rate : 5.00,
+        prep_time_minutes !== undefined ? prep_time_minutes : 10,
+        is_veg !== undefined ? is_veg : 1,
+        spicy_level !== undefined ? spicy_level : 0,
+        is_available !== undefined ? is_available : 1,
+        image_url || null,
+        seq !== undefined ? seq : 0,
+        kitchen_category || 'Main Kitchen',
+        printer_id || null,
+        unit || 'pcs',
+        current_stock !== undefined ? current_stock : 100.00,
         low_stock_threshold !== undefined ? low_stock_threshold : 10.00,
         track_inventory !== undefined ? track_inventory : 1
       ]
@@ -68,19 +81,49 @@ class MenuRepository {
     const [result] = await pool.execute(
       'UPDATE menu_items SET category_id = ?, name = ?, sku = ?, barcode = ?, description = ?, price = ?, gst_rate = ?, prep_time_minutes = ?, is_veg = ?, spicy_level = ?, is_available = ?, image_url = ?, seq = ?, kitchen_category = ?, printer_id = ?, unit = COALESCE(?, unit), current_stock = COALESCE(?, current_stock), low_stock_threshold = COALESCE(?, low_stock_threshold), track_inventory = COALESCE(?, track_inventory) WHERE id = ? AND restaurant_id = ?',
       [
-        category_id, name, sku || null, barcode || null, description || null,
-        price, gst_rate, prep_time_minutes, is_veg, spicy_level, is_available,
-        image_url || null, seq, kitchen_category, printer_id || null,
-        unit || null, current_stock !== undefined ? current_stock : null,
+        category_id,
+        name || '',
+        sku || null,
+        barcode || null,
+        description || null,
+        price !== undefined ? price : 0,
+        gst_rate !== undefined ? gst_rate : 5.00,
+        prep_time_minutes !== undefined ? prep_time_minutes : 10,
+        is_veg !== undefined ? is_veg : 1,
+        spicy_level !== undefined ? spicy_level : 0,
+        is_available !== undefined ? is_available : 1,
+        image_url || null,
+        seq !== undefined ? seq : 0,
+        kitchen_category || 'Main Kitchen',
+        printer_id || null,
+        unit !== undefined ? unit : null,
+        current_stock !== undefined ? current_stock : null,
         low_stock_threshold !== undefined ? low_stock_threshold : null,
         track_inventory !== undefined ? track_inventory : null,
-        id, restaurantId
+        id,
+        restaurantId
       ]
     );
     return result.affectedRows > 0;
   }
 
   static async delete(id, restaurantId) {
+    try {
+      await pool.execute(
+        'UPDATE order_items SET menu_item_id = NULL WHERE menu_item_id = ?',
+        [id]
+      );
+    } catch (err) {
+      console.warn('[Unlink order_items Alert]', err.message);
+    }
+
+    try {
+      await pool.execute(
+        'UPDATE inventory_audit_logs SET menu_item_id = NULL WHERE menu_item_id = ?',
+        [id]
+      );
+    } catch (e) {}
+
     const [result] = await pool.execute(
       'DELETE FROM menu_items WHERE id = ? AND restaurant_id = ?',
       [id, restaurantId]

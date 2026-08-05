@@ -30,7 +30,7 @@ class CategoryRepository {
 
     const [result] = await pool.execute(
       'INSERT INTO categories (restaurant_id, name, description, seq) VALUES (?, ?, ?, ?)',
-      [restaurantId, name, description, targetSeq]
+      [restaurantId, name || '', description || null, targetSeq]
     );
     return result.insertId;
   }
@@ -39,7 +39,7 @@ class CategoryRepository {
     const { name, description, seq } = category;
     const [result] = await pool.execute(
       'UPDATE categories SET name = ?, description = ?, seq = ? WHERE id = ? AND restaurant_id = ?',
-      [name, description, seq || 0, id, restaurantId]
+      [name || '', description || null, seq || 0, id, restaurantId]
     );
     return result.affectedRows > 0;
   }

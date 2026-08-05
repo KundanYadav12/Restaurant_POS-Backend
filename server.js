@@ -69,6 +69,9 @@ app.use('/api/settings/receipt', receiptRoutes);
 app.use('/api/agent', agentRoutes);
 app.use('/api/sync', syncRoutes);
 
+const ThemeController = require('./controllers/theme_controller');
+app.get('/api/theme/config', ThemeController.getTheme);
+
 // Health check endpoint
 app.get('/api/health', (req, res) => {
   res.json({

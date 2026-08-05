@@ -11,18 +11,18 @@ class AuthController {
   static async login(req, res) {
     const emailInput = (req.body.email || req.body.username || '').trim().toLowerCase();
     const { password, starting_cash, device } = req.body;
-    const ipAddress = req.ip || req.headers['x-forwarded-for'] || req.socket.remoteAddress;
+    const ipAddress = req.ip || req.headers['x-forwarded-for'] || req.socket.remoteAddress || '127.0.0.1';
 
     if (!emailInput || !password) {
-      return res.status(400).json({ error: 'Email address and password are required.' });
+      return res.status(400).json({ error: 'Email address/username and password are required.' });
     }
 
     try {
-      // Authenticate strictly by registered email address
-      const user = await UserRepository.findByEmail(emailInput);
+      // Authenticate by registered email address OR username
+      const user = await UserRepository.findByEmailOrUsername(emailInput);
 
       if (!user) {
-        return res.status(401).json({ error: 'Invalid email address or password.' });
+        return res.status(401).json({ error: 'Invalid email address/username or password.' });
       }
 
       if (!user.is_active) {
@@ -31,7 +31,7 @@ class AuthController {
 
       const isPasswordValid = await bcrypt.compare(password, user.password_hash);
       if (!isPasswordValid) {
-        return res.status(401).json({ error: 'Invalid email address or password.' });
+        return res.status(401).json({ error: 'Invalid email address/username or password.' });
       }
 
       let activeShiftId = null;
@@ -80,7 +80,7 @@ class AuthController {
       });
     } catch (err) {
       console.error('Login error:', err);
-      return res.status(500).json({ error: 'Internal server error during login.' });
+      return res.status(500).json({ error: err.message || 'Internal server error during login.' });
     }
   }
 
@@ -253,14 +253,19 @@ class AuthController {
    */
   static async createUser(req, res) {
     const { name, username, email, password, role } = req.body;
-    const restaurantId = req.user.restaurant_id;
+    const restaurantId = req.user.restaurant_id || req.user.restaurantId;
 
-    if (!name || !email || !password) {
-      return res.status(400).json({ error: 'Name, Registered Email, and Password are required.' });
+    if (!name || !name.trim() || !password || !password.trim()) {
+      return res.status(400).json({ error: 'Name and Password are required.' });
     }
 
+    const cleanName = name.trim();
+    const cleanUsername = (username && username.trim()) ? username.trim() : cleanName.toLowerCase().replace(/\s+/g, '_');
+    
+    // Auto-fallback email if email was left blank by Admin
+    let cleanEmail = (email && email.trim()) ? email.trim().toLowerCase() : `${cleanUsername}@restaurant${restaurantId || 1}.local`;
+
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    const cleanEmail = email.trim().toLowerCase();
     if (!emailRegex.test(cleanEmail)) {
       return res.status(400).json({ error: 'Please provide a valid email address.' });
     }
@@ -273,10 +278,12 @@ class AuthController {
     }
 
     try {
-      // 1. Check Email Uniqueness
-      const existingUser = await UserRepository.findByEmail(cleanEmail);
-      if (existingUser) {
-        return res.status(400).json({ error: 'A user account with this email address already exists.' });
+      // 1. Check Email Uniqueness (only if explicit email provided)
+      if (email && email.trim()) {
+        const existingUser = await UserRepository.findByEmail(cleanEmail);
+        if (existingUser) {
+          return res.status(400).json({ error: 'A user account with this email address already exists.' });
+        }
       }
 
       // 2. Fetch Tenant's Max User Limit

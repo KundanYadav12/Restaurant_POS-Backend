@@ -18,9 +18,19 @@ class UserRepository {
   }
 
   static async findByEmail(email) {
+    const clean = (email || '').toLowerCase().trim();
     const [rows] = await pool.execute(
-      'SELECT * FROM users WHERE email = ?',
-      [email.toLowerCase().trim()]
+      'SELECT * FROM users WHERE LOWER(email) = ? OR LOWER(username) = ?',
+      [clean, clean]
+    );
+    return rows[0];
+  }
+
+  static async findByEmailOrUsername(input) {
+    const clean = (input || '').toLowerCase().trim();
+    const [rows] = await pool.execute(
+      'SELECT * FROM users WHERE LOWER(email) = ? OR LOWER(username) = ?',
+      [clean, clean]
     );
     return rows[0];
   }
@@ -114,7 +124,7 @@ class UserRepository {
   static async openShift(restaurantId, cashierId, shiftData) {
     const { starting_cash, device, ip_address } = shiftData;
     const [result] = await pool.execute(
-      'INSERT INTO cashier_shifts (restaurant_id, cashier_id, device, ip_address, starting_cash, status, opened_at) ' +
+      'INSERT INTO cashier_shifts (restaurant_id, cashier_id, device, ip_address, starting_cash, status, login_time) ' +
       'VALUES (?, ?, ?, ?, ?, "open", NOW())',
       [restaurantId, cashierId, device || 'Web Client', ip_address || null, starting_cash || 0]
     );
@@ -131,7 +141,7 @@ class UserRepository {
 
   static async closeShift(shiftId, restaurantId) {
     const [result] = await pool.execute(
-      'UPDATE cashier_shifts SET status = "closed", closed_at = NOW() WHERE id = ? AND restaurant_id = ?',
+      'UPDATE cashier_shifts SET status = "closed", logout_time = NOW() WHERE id = ? AND restaurant_id = ?',
       [shiftId, restaurantId]
     );
     return result.affectedRows > 0;

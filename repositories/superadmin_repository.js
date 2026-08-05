@@ -162,10 +162,14 @@ class SuperAdminRepository {
   }
 
   static async addAuditLog(restaurantId, userId, action, description, ipAddress) {
-    await pool.execute(
-      'INSERT INTO audit_logs (restaurant_id, user_id, action, description, ip_address) VALUES (?, ?, ?, ?, ?)',
-      [restaurantId, userId, action, description, ipAddress]
-    );
+    try {
+      await pool.execute(
+        'INSERT INTO audit_logs (restaurant_id, user_id, action, description, ip_address) VALUES (?, ?, ?, ?, ?)',
+        [restaurantId || null, userId || null, action || 'ACTION', description || null, ipAddress || null]
+      );
+    } catch (err) {
+      console.warn('[Audit Log Warning]', err.message);
+    }
   }
 }
 

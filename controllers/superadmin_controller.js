@@ -232,6 +232,61 @@ class SuperAdminController {
       return res.status(500).json({ error: 'Failed to retrieve logs.' });
     }
   }
+
+  /**
+   * Get Google AI Studio Gemini Configuration (Masked for Security)
+   */
+  static async getAiConfig(req, res) {
+    try {
+      const AiConfigRepository = require('../repositories/ai_config_repository');
+      const config = await AiConfigRepository.getMaskedConfig();
+      return res.json(config);
+    } catch (err) {
+      console.error('[SuperAdminController.getAiConfig Error]', err);
+      return res.status(500).json({ error: 'Failed to retrieve AI configuration.' });
+    }
+  }
+
+  /**
+   * Update Google AI Studio Gemini Configuration
+   */
+  static async updateAiConfig(req, res) {
+    const { api_key, model_name, is_enabled } = req.body;
+    try {
+      const AiConfigRepository = require('../repositories/ai_config_repository');
+      const updatedConfig = await AiConfigRepository.updateConfig({ api_key, model_name, is_enabled });
+
+      await SuperAdminRepository.addAuditLog(
+        null,
+        req.user.id,
+        'AI_CONFIG_UPDATE',
+        `Updated Google Gemini AI settings (Model: ${model_name || 'gemini-2.5-flash'}, Enabled: ${is_enabled ? 'Yes' : 'No'})`,
+        req.ip
+      );
+
+      return res.json({
+        message: 'Google Gemini AI configuration updated successfully.',
+        config: updatedConfig
+      });
+    } catch (err) {
+      console.error('[SuperAdminController.updateAiConfig Error]', err);
+      return res.status(500).json({ error: 'Failed to update AI configuration.' });
+    }
+  }
+
+  /**
+   * Test Google AI Studio Gemini API Connection
+   */
+  static async testAiConnection(req, res) {
+    const { api_key } = req.body;
+    try {
+      const { testGeminiApiKeyConnection } = require('../utils/menu_ai_ocr_helper');
+      const result = await testGeminiApiKeyConnection(api_key);
+      return res.json(result);
+    } catch (err) {
+      return res.status(400).json({ error: err.message || 'Gemini API connection test failed.' });
+    }
+  }
 }
 
 module.exports = SuperAdminController;
