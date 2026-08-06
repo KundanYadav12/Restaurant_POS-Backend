@@ -19,20 +19,34 @@ class UserRepository {
 
   static async findByEmail(email) {
     const clean = (email || '').toLowerCase().trim();
-    const [rows] = await pool.execute(
-      'SELECT * FROM users WHERE LOWER(email) = ? OR LOWER(username) = ?',
+    let [rows] = await pool.execute(
+      'SELECT * FROM users WHERE LOWER(email) = ? OR LOWER(username) = ? ORDER BY id DESC',
       [clean, clean]
     );
-    return rows[0];
+    if (rows.length > 0) return rows[0];
+
+    [rows] = await pool.execute(
+      'SELECT u.* FROM users u JOIN restaurants r ON u.restaurant_id = r.id ' +
+      'WHERE (LOWER(r.owner_email) = ? OR LOWER(r.email) = ?) AND u.role = "admin" ORDER BY u.id DESC',
+      [clean, clean]
+    );
+    return rows[0] || null;
   }
 
   static async findByEmailOrUsername(input) {
     const clean = (input || '').toLowerCase().trim();
-    const [rows] = await pool.execute(
-      'SELECT * FROM users WHERE LOWER(email) = ? OR LOWER(username) = ?',
+    let [rows] = await pool.execute(
+      'SELECT * FROM users WHERE LOWER(email) = ? OR LOWER(username) = ? ORDER BY id DESC',
       [clean, clean]
     );
-    return rows[0];
+    if (rows.length > 0) return rows[0];
+
+    [rows] = await pool.execute(
+      'SELECT u.* FROM users u JOIN restaurants r ON u.restaurant_id = r.id ' +
+      'WHERE (LOWER(r.owner_email) = ? OR LOWER(r.email) = ?) AND u.role = "admin" ORDER BY u.id DESC',
+      [clean, clean]
+    );
+    return rows[0] || null;
   }
 
   static async findById(id) {
