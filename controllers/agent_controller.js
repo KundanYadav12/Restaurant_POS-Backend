@@ -47,7 +47,12 @@ class AgentController {
       return req.user.restaurant_id;
     }
 
-    const deviceToken = req.headers['x-device-token'];
+    const deviceToken = req.deviceToken || 
+                       req.headers['x-device-token'] || 
+                       req.headers['device-token'] || 
+                       req.query.device_token || 
+                       req.query.token;
+
     if (deviceToken) {
       const device = await DeviceRepository.findByToken(deviceToken);
       if (device) {
@@ -80,12 +85,18 @@ class AgentController {
 
       const printers = await PrinterRepository.getAll(restaurantId);
 
-      return res.json({
-        jobs,
-        printers,
-        restaurant_name: req.device ? req.device.restaurant_name : (req.user ? req.user.restaurant_name : 'Restaurant POS'),
-        server_timestamp: new Date()
-      });
+      // Support explicit format override or dual-compatible default response
+      if (req.query.format === 'verbose') {
+        return res.json({
+          jobs,
+          printers,
+          restaurant_name: req.device ? req.device.restaurant_name : (req.user ? req.user.restaurant_name : 'Restaurant POS'),
+          server_timestamp: new Date()
+        });
+      }
+
+      // Default: Return jobs array directly so Array.isArray(res.json()) is true for CLI print daemons
+      return res.json(jobs);
     } catch (err) {
       console.error('[Agent Get Pending Jobs Error]', err);
       return res.status(500).json({ error: 'Failed to retrieve pending print jobs.' });

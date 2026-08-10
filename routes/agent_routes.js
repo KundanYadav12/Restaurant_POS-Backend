@@ -9,11 +9,22 @@ const { authenticateToken } = require('../middlewares/auth_middleware');
  * 2. Permanent Gateway Device Token (req.headers['x-device-token'])
  */
 async function authenticateDeviceOrUser(req, res, next) {
-  const deviceToken = req.headers['x-device-token'];
+  const deviceToken = req.headers['x-device-token'] || 
+                     req.headers['device-token'] || 
+                     req.query.device_token || 
+                     req.query.token;
+
   if (deviceToken) {
-    // Authenticating via permanent device token
+    req.deviceToken = deviceToken;
     return next();
   }
+
+  const authHeader = req.headers['authorization'];
+  if (authHeader && authHeader.startsWith('Bearer dev_')) {
+    req.deviceToken = authHeader.substring(7);
+    return next();
+  }
+
   // Fall back to standard JWT user token verification
   return authenticateToken(req, res, next);
 }
