@@ -208,13 +208,18 @@ class OrderController {
     try {
       const restaurantId = req.user.restaurant_id;
       const role = (req.user.role || '').toLowerCase();
-      
+
+      const page = Math.max(1, parseInt(req.query.page) || 1);
+      const limit = Math.min(100, Math.max(1, parseInt(req.query.limit) || 20));
+      const offset = req.query.offset !== undefined ? Math.max(0, parseInt(req.query.offset)) : (page - 1) * limit;
+
       const filters = {
         order_status: req.query.order_status && req.query.order_status !== 'all' ? req.query.order_status : undefined,
         payment_mode: req.query.payment_mode && req.query.payment_mode !== 'all' ? req.query.payment_mode : undefined,
         search: req.query.search,
-        limit: parseInt(req.query.limit) || 20,
-        offset: parseInt(req.query.offset) || 0
+        limit,
+        offset,
+        page
       };
 
       if (role === 'cashier') {
@@ -227,7 +232,8 @@ class OrderController {
         }
         
         if (req.query.date_from) {
-          filters.date_from = req.query.date_from;
+          const rawFrom = req.query.date_from.trim();
+          filters.date_from = rawFrom.length === 10 ? `${rawFrom} 00:00:00` : rawFrom;
         } else {
           // Default 15 days retention filter limit
           const fifteenDaysAgo = new Date(Date.now() - 15 * 24 * 60 * 60 * 1000);
@@ -235,14 +241,15 @@ class OrderController {
         }
 
         if (req.query.date_to) {
-          filters.date_to = req.query.date_to;
+          const rawTo = req.query.date_to.trim();
+          filters.date_to = rawTo.length === 10 ? `${rawTo} 23:59:59` : rawTo;
         }
       }
 
-      const orders = await OrderRepository.getHistory(restaurantId, filters);
-      return res.json(orders);
+      const result = await OrderRepository.getHistory(restaurantId, filters);
+      return res.json(result);
     } catch (err) {
-      console.error(err);
+      console.error('Failed to retrieve order history:', err);
       return res.status(500).json({ error: 'Failed to retrieve order history.' });
     }
   }

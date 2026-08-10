@@ -220,6 +220,18 @@ async function initDBSchema() {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
     `);
 
+    // 9. Ensure order_sequences table exists
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS order_sequences (
+        restaurant_id INT NOT NULL,
+        order_date VARCHAR(10) NOT NULL,
+        last_seq INT NOT NULL DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        PRIMARY KEY (restaurant_id, order_date)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    `);
+
     // 9. Seed Default Super Admin if no super admin account exists
     const [existingSuperAdmins] = await pool.query(
       'SELECT id, username, email FROM users WHERE role IN ("super_admin", "superadmin") OR email = "kundanyadav96197@gmail.com" OR username = "superadmin"'
