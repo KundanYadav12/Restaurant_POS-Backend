@@ -166,6 +166,89 @@ class MenuController {
   }
 
   /**
+   * Bulk Delete Menu Items for a specific Tenant
+   * Chunks large operations into batches of 200 to ensure fast execution and zero lockups.
+   */
+  static async bulkDelete(req, res) {
+    const { ids } = req.body;
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ error: 'Please select menu items to delete.' });
+    }
+    if (ids.length > 20) {
+      return res.status(400).json({ error: 'Maximum 20 menu items can be deleted at a time.' });
+    }
+
+    try {
+      const restaurantId = req.user.restaurant_id;
+      const CHUNK_SIZE = 200;
+      let totalDeleted = 0;
+
+      for (let i = 0; i < ids.length; i += CHUNK_SIZE) {
+        const chunk = ids.slice(i, i + CHUNK_SIZE);
+        const deletedCount = await MenuRepository.bulkDelete(chunk, restaurantId);
+        totalDeleted += deletedCount;
+      }
+
+      await SuperAdminRepository.addAuditLog(
+        restaurantId,
+        req.user.id,
+        'MENU_BULK_DELETE',
+        `Bulk deleted ${totalDeleted} menu items`,
+        req.ip
+      );
+
+      return res.json({
+        message: `Successfully deleted ${totalDeleted} menu items.`,
+        deletedCount: totalDeleted
+      });
+    } catch (err) {
+      console.error('[Bulk Delete Error]', err);
+      return res.status(500).json({ error: 'Failed to delete selected menu items.' });
+    }
+  }
+
+  /**
+   * Bulk Update Availability Status for Menu Items
+   */
+  static async bulkUpdateStatus(req, res) {
+    const { ids, is_available } = req.body;
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ error: 'Please select menu items to update.' });
+    }
+    if (ids.length > 20) {
+      return res.status(400).json({ error: 'Maximum 20 menu items can be updated at a time.' });
+    }
+
+    try {
+      const restaurantId = req.user.restaurant_id;
+      const CHUNK_SIZE = 200;
+      let totalUpdated = 0;
+
+      for (let i = 0; i < ids.length; i += CHUNK_SIZE) {
+        const chunk = ids.slice(i, i + CHUNK_SIZE);
+        const updatedCount = await MenuRepository.bulkUpdateStatus(chunk, restaurantId, Boolean(is_available));
+        totalUpdated += updatedCount;
+      }
+
+      await SuperAdminRepository.addAuditLog(
+        restaurantId,
+        req.user.id,
+        'MENU_BULK_STATUS',
+        `Bulk updated availability for ${totalUpdated} menu items`,
+        req.ip
+      );
+
+      return res.json({
+        message: `Successfully updated ${totalUpdated} menu items.`,
+        updatedCount: totalUpdated
+      });
+    } catch (err) {
+      console.error('[Bulk Status Error]', err);
+      return res.status(500).json({ error: 'Failed to update selected menu items.' });
+    }
+  }
+
+  /**
    * Download sample Excel template for bulk menu import
    */
   static async downloadSampleTemplate(req, res) {

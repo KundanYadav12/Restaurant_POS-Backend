@@ -18,11 +18,13 @@ const inventoryRoutes = require('./routes/inventory_routes');
 const agentRoutes = require('./routes/agent_routes');
 const syncRoutes = require('./routes/sync_routes');
 
+const { apiLimiter, authLimiter } = require('./middlewares/rate_limiter_middleware');
+
 const app = express();
 const PORT = process.env.PORT || 5000;
 
 // Configure Express for Production Reverse Proxy / Nginx
-app.set('trust proxy', 1);
+app.set('trust proxy', 'loopback, linklocal, uniquelocal');
 
 // Security Middlewares
 app.use(helmet({
@@ -32,15 +34,12 @@ app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Rate Limiter with Nginx Proxy Support
-const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 500, // Limit each IP to 500 requests per window
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { error: 'Too many requests from this IP, please try again after 15 minutes' }
-});
-app.use('/api/', limiter);
+// Apply Authentication Rate Limiter to Login and OTP Endpoints
+app.use('/api/auth/login', authLimiter);
+app.use('/api/auth/send-otp', authLimiter);
+
+// Apply Multi-Tenant Isolated Rate Limiter to API Routes
+app.use('/api/', apiLimiter);
 
 // Serve uploads directory static files
 const uploadsDir = path.join(__dirname, 'uploads');

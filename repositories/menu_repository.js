@@ -150,6 +150,70 @@ class MenuRepository {
       connection.release();
     }
   }
+
+  /**
+   * Transactional Bulk Delete of Menu Items for a specific Tenant
+   */
+  static async bulkDelete(ids, restaurantId) {
+    if (!Array.isArray(ids) || ids.length === 0) return 0;
+    const cleanIds = ids.map(id => parseInt(id)).filter(id => !isNaN(id) && id > 0);
+    if (cleanIds.length === 0) return 0;
+
+    const connection = await pool.getConnection();
+    try {
+      await connection.beginTransaction();
+
+      const placeholders = cleanIds.map(() => '?').join(',');
+
+      // 1. Unlink historical order_items to preserve order receipts
+      try {
+        await connection.query(
+          `UPDATE order_items SET menu_item_id = NULL WHERE menu_item_id IN (${placeholders})`,
+          cleanIds
+        );
+      } catch (e) {
+        console.warn('[Unlink order_items bulk warning]', e.message);
+      }
+
+      // 2. Unlink inventory audit logs
+      try {
+        await connection.query(
+          `UPDATE inventory_audit_logs SET menu_item_id = NULL WHERE menu_item_id IN (${placeholders})`,
+          cleanIds
+        );
+      } catch (e) {}
+
+      // 3. Delete menu_items belonging ONLY to this restaurant tenant
+      const [result] = await connection.query(
+        `DELETE FROM menu_items WHERE id IN (${placeholders}) AND restaurant_id = ?`,
+        [...cleanIds, restaurantId]
+      );
+
+      await connection.commit();
+      return result.affectedRows;
+    } catch (err) {
+      await connection.rollback();
+      throw err;
+    } finally {
+      connection.release();
+    }
+  }
+
+  /**
+   * Bulk Update Availability Status for Menu Items
+   */
+  static async bulkUpdateStatus(ids, restaurantId, isAvailable) {
+    if (!Array.isArray(ids) || ids.length === 0) return 0;
+    const cleanIds = ids.map(id => parseInt(id)).filter(id => !isNaN(id) && id > 0);
+    if (cleanIds.length === 0) return 0;
+
+    const placeholders = cleanIds.map(() => '?').join(',');
+    const [result] = await pool.query(
+      `UPDATE menu_items SET is_available = ? WHERE id IN (${placeholders}) AND restaurant_id = ?`,
+      [isAvailable ? 1 : 0, ...cleanIds, restaurantId]
+    );
+    return result.affectedRows;
+  }
 }
 
 module.exports = MenuRepository;

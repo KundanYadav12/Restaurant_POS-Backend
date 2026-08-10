@@ -14,15 +14,19 @@ const docUpload = multer({
   limits: { fileSize: 15 * 1024 * 1024 }
 });
 
+const { bulkLimiter } = require('../middlewares/rate_limiter_middleware');
+
 const router = express.Router();
 
 router.use(authenticateToken);
 
-// Bulk Import Routes (Admin & Manager Only)
+// Bulk Import & Bulk Operation Routes (Admin & Manager Only)
 router.get('/import-sample-template', authorizeRoles('admin', 'manager'), MenuController.downloadSampleTemplate);
-router.post('/import-excel', authorizeRoles('admin', 'manager'), docUpload.single('file'), MenuController.importExcel);
-router.post('/import-ai-ocr', authorizeRoles('admin', 'manager'), docUpload.single('file'), MenuController.importAiOcr);
-router.post('/bulk-save', authorizeRoles('admin', 'manager'), MenuController.bulkSaveItems);
+router.post('/import-excel', bulkLimiter, authorizeRoles('admin', 'manager'), docUpload.single('file'), MenuController.importExcel);
+router.post('/import-ai-ocr', bulkLimiter, authorizeRoles('admin', 'manager'), docUpload.single('file'), MenuController.importAiOcr);
+router.post('/bulk-save', bulkLimiter, authorizeRoles('admin', 'manager'), MenuController.bulkSaveItems);
+router.post('/bulk-delete', bulkLimiter, authorizeRoles('admin'), MenuController.bulkDelete);
+router.post('/bulk-status', bulkLimiter, authorizeRoles('admin', 'manager'), MenuController.bulkUpdateStatus);
 
 router.get('/', MenuController.getAll);
 router.get('/:id', MenuController.getById);
