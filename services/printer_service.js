@@ -25,33 +25,64 @@ class PrinterService {
    * Sends a raw in-memory Buffer payload directly to a network thermal printer TCP socket
    */
   static sendToPrinterSocket(ip, port, buffer) {
+    const tConnectionStarted = Date.now();
     return new Promise((resolve, reject) => {
       const isMock = !ip || ip === '127.0.0.1' || ip.startsWith('192.168.99') || ip === 'localhost';
 
       if (isMock) {
         // Development / Mock Virtual Printer Mode (In-memory execution, no physical socket & NO disk text files created)
-        console.log(`[Dynamic Printer Engine - In-Memory Execution] Simulated socket print stream to ${ip || 'virtual'}:${port || 9100} (${buffer.length} bytes memory payload)`);
-        return resolve({ success: true, method: 'virtual_in_memory' });
+        const tConnected = Date.now();
+        const tSent = Date.now() + 5;
+        const tCompleted = Date.now() + 8;
+        console.log(`[Dynamic Printer Engine - In-Memory Execution] Simulated socket print stream to ${ip || 'virtual'}:${port || 9100} (${buffer.length} bytes payload)`);
+        return resolve({
+          success: true,
+          method: 'virtual_in_memory',
+          timing: {
+            tConnectionStarted,
+            tConnected,
+            tSent,
+            tCompleted,
+            durationMs: tCompleted - tConnectionStarted
+          }
+        });
       }
 
       const client = new net.Socket();
-      client.setTimeout(3000); // 3 second connection timeout
+      client.setTimeout(2500); // Tight 2.5 second TCP connection timeout
+
+      let tConnected = null;
+      let tSent = null;
 
       client.connect(port || 9100, ip, () => {
+        tConnected = Date.now();
         client.write(buffer, () => {
+          tSent = Date.now();
           client.end();
-          resolve({ success: true, method: 'tcp_socket' });
+          const tCompleted = Date.now();
+          resolve({
+            success: true,
+            method: 'tcp_socket',
+            timing: {
+              tConnectionStarted,
+              tConnected,
+              tSent,
+              tCompleted,
+              durationMs: tCompleted - tConnectionStarted
+            }
+          });
         });
       });
 
       client.on('error', (err) => {
         client.destroy();
-        reject(err);
+        reject(Object.assign(err, { tConnectionStarted, tFailed: Date.now() }));
       });
 
       client.on('timeout', () => {
         client.destroy();
-        reject(new Error(`TCP Socket timeout connecting to printer at ${ip}:${port}`));
+        const err = new Error(`TCP Socket timeout connecting to thermal printer at ${ip}:${port}`);
+        reject(Object.assign(err, { tConnectionStarted, tFailed: Date.now() }));
       });
     });
   }
@@ -234,6 +265,7 @@ class PrinterService {
   }
 
   static async enqueueOrderPrintJobs(restaurantId, orderId, printActions = null) {
+    const tEnqueueStart = Date.now();
     try {
       let finalActions = [];
 
@@ -267,97 +299,149 @@ class PrinterService {
       const restaurant = await SuperAdminRepository.getRestaurantById(restaurantId);
       const receiptSettings = await ReceiptRepository.getByRestaurantId(restaurantId);
 
+      const createdJobIds = [];
+
       if (finalActions.includes('RECEIPT') && order && restaurant) {
         const receiptPrinter = await PrinterRepository.getDefaultReceiptPrinter(restaurantId);
         const receiptBuffer = this.buildReceiptPayload(order, items, restaurant, receiptPrinter, receiptSettings);
         
-        await PrintQueueRepository.enqueue({
+        const jobId = await PrintQueueRepository.enqueue({
           restaurant_id: restaurantId,
           order_id: orderId,
           printer_id: receiptPrinter ? receiptPrinter.id : null,
           print_type: 'RECEIPT',
-          payload_base64: receiptBuffer ? receiptBuffer.toString('base64') : null
+          payload_base64: receiptBuffer ? receiptBuffer.toString('base64') : null,
+          backend_received_at: tEnqueueStart
         });
+        createdJobIds.push(jobId);
       }
 
       if (finalActions.includes('KOT') && order && restaurant) {
         const kotPrinter = await PrinterRepository.getDefaultKOTPrinter(restaurantId);
         const kotBuffer = this.buildKOTPayload(order, items, kotPrinter, receiptSettings);
 
-        await PrintQueueRepository.enqueue({
+        const jobId = await PrintQueueRepository.enqueue({
           restaurant_id: restaurantId,
           order_id: orderId,
           printer_id: kotPrinter ? kotPrinter.id : null,
           print_type: 'KOT',
-          payload_base64: kotBuffer ? kotBuffer.toString('base64') : null
+          payload_base64: kotBuffer ? kotBuffer.toString('base64') : null,
+          backend_received_at: tEnqueueStart
         });
+        createdJobIds.push(jobId);
       }
 
-      console.log(`[Printer Engine] Print job enqueued for local gateway agent (Order #${order?.unique_order_number || orderId})`);
+      console.log(`[Printer Engine] Enqueued ${createdJobIds.length} print job(s) for Order #${order?.unique_order_number || orderId} in ${Date.now() - tEnqueueStart}ms (Job IDs: ${createdJobIds.join(', ') || 'None'})`);
+
+      // FAST PATH EXECUTION: Trigger queue processor immediately without waiting 1s for setInterval!
+      if (createdJobIds.length > 0) {
+        setImmediate(() => {
+          this.processPendingQueue().catch(err => console.error('[Fast Path Queue Error]', err));
+        });
+      }
     } catch (err) {
       console.error('[Printer Queue Enqueue Error]', err);
     }
   }
 
   /**
-   * Continuous Database Print Queue Processor (Zero File System Overhead)
+   * Process a single print job asynchronously (Parallel Non-Blocking Job Engine)
+   */
+  static async processSingleJob(job) {
+    const tJobStart = Date.now();
+    
+    // Atomically claim job to ensure no duplicate worker execution
+    const claimed = await PrintQueueRepository.claimJob(job.id);
+    if (!claimed) return; // Another worker or poller tick already claimed this job!
+
+    try {
+      // Prevent cloud backend from socket printing when Desktop Print Gateway is active for the outlet
+      const hasGateway = await DeviceRepository.hasActiveGatewayDevice(job.restaurant_id);
+      if (hasGateway) {
+        // Job is reserved for Desktop Print Gateway polling via /api/agent/print-jobs/poll
+        return;
+      }
+
+      // Only attempt direct socket printing if IP is non-private or virtual mock
+      const targetIp = job.ip_address || '';
+      const isPrivateLanIp = targetIp.startsWith('192.168.') || targetIp.startsWith('10.') || targetIp.startsWith('172.');
+      if (process.env.NODE_ENV === 'production' && isPrivateLanIp) {
+        // Cloud backend cannot reach local LAN IP directly; leave in queue for gateway agent
+        return;
+      }
+
+      const orderRes = await OrderRepository.getById(job.order_id, job.restaurant_id);
+      const order = orderRes ? (orderRes.order || orderRes) : null;
+      const items = orderRes && orderRes.items ? orderRes.items : (await OrderRepository.getOrderItems(job.order_id));
+      const restaurant = await SuperAdminRepository.getRestaurantById(job.restaurant_id);
+      const receiptSettings = await ReceiptRepository.getByRestaurantId(job.restaurant_id);
+
+      if (!order || !restaurant) {
+        await PrintQueueRepository.updateJobStatus(job.id, 'FAILED', 'Order or Restaurant data not found in DB.');
+        return;
+      }
+
+      // Build in-memory Buffer payload
+      let bufferPayload;
+      if (job.print_type === 'KOT') {
+        bufferPayload = this.buildKOTPayload(order, items, job, receiptSettings);
+      } else {
+        bufferPayload = this.buildReceiptPayload(order, items, restaurant, job, receiptSettings);
+      }
+
+      // Send to thermal printer socket
+      const printResult = await this.sendToPrinterSocket(job.ip_address || '127.0.0.1', job.port || 9100, bufferPayload);
+      
+      const tCompleted = Date.now();
+      const totalDurationMs = tCompleted - tJobStart;
+
+      await PrintQueueRepository.updateJobTiming(job.id, {
+        connected_at: printResult.timing?.tConnected,
+        data_sent_at: printResult.timing?.tSent,
+        completed_at: tCompleted,
+        total_duration_ms: totalDurationMs
+      });
+
+      await PrintQueueRepository.updateJobStatus(job.id, 'SUCCESS');
+
+      const backendTime = job.backend_received_at ? new Date(job.backend_received_at).toISOString() : 'N/A';
+      const createdTime = job.created_at ? new Date(job.created_at).toISOString() : 'N/A';
+      const connDelay = printResult.timing?.tConnected ? `+${printResult.timing.tConnected - printResult.timing.tConnectionStarted}ms` : 'N/A';
+      const sendDelay = printResult.timing?.tSent ? `+${printResult.timing.tSent - printResult.timing.tConnected}ms` : 'N/A';
+
+      console.log(`[PRINT TIMELINE] Job #${job.id} (${job.print_type}) | Rest #${job.restaurant_id} | Printer: ${job.printer_name || 'Thermal'} (${job.ip_address || '127.0.0.1'}:${job.port || 9100})
+  • Backend Received : ${backendTime}
+  • Job Created      : ${createdTime}
+  • Socket Connection: ${connDelay}
+  • Print Data Sent  : ${sendDelay}
+  • Print Completed  : ${totalDurationMs}ms (SUCCESS)`);
+    } catch (jobErr) {
+      const totalDurationMs = Date.now() - tJobStart;
+      console.error(`[PRINT TIMELINE] Job #${job.id} (${job.print_type}) FAILED after ${totalDurationMs}ms:`, jobErr.message);
+      
+      await PrintQueueRepository.updateJobTiming(job.id, {
+        completed_at: Date.now(),
+        total_duration_ms: totalDurationMs
+      });
+
+      if ((job.retry_count || 0) >= 2) {
+        await PrintQueueRepository.updateJobStatus(job.id, 'FAILED', jobErr.message);
+      } else {
+        await PrintQueueRepository.incrementRetry(job.id, jobErr.message);
+      }
+    }
+  }
+
+  /**
+   * Continuous Database Print Queue Processor (Parallel Non-Blocking Job Engine)
    */
   static async processPendingQueue() {
     try {
-      const pendingJobs = await PrintQueueRepository.getPendingJobs(10);
+      const pendingJobs = await PrintQueueRepository.getPendingJobs(20);
       if (!pendingJobs || pendingJobs.length === 0) return;
 
-      for (const job of pendingJobs) {
-        // Prevent cloud backend from socket printing when Desktop Print Gateway is active for the outlet
-        const hasGateway = await DeviceRepository.hasActiveGatewayDevice(job.restaurant_id);
-        if (hasGateway) {
-          // Job is reserved for Desktop Print Gateway polling via /api/agent/poll-jobs
-          continue;
-        }
-
-        // Only attempt direct socket printing if IP is non-private or virtual mock
-        const targetIp = job.ip_address || '';
-        const isPrivateLanIp = targetIp.startsWith('192.168.') || targetIp.startsWith('10.') || targetIp.startsWith('172.');
-        if (process.env.NODE_ENV === 'production' && isPrivateLanIp) {
-          // Cloud backend cannot reach local LAN IP directly; leave in queue for gateway
-          continue;
-        }
-
-        await PrintQueueRepository.updateJobStatus(job.id, 'PRINTING');
-
-        try {
-          const orderRes = await OrderRepository.getById(job.order_id, job.restaurant_id);
-          const order = orderRes ? (orderRes.order || orderRes) : null;
-          const items = orderRes && orderRes.items ? orderRes.items : (await OrderRepository.getOrderItems(job.order_id));
-          const restaurant = await SuperAdminRepository.getRestaurantById(job.restaurant_id);
-          const receiptSettings = await ReceiptRepository.getByRestaurantId(job.restaurant_id);
-
-          if (!order || !restaurant) {
-            await PrintQueueRepository.updateJobStatus(job.id, 'FAILED', 'Order or Restaurant data not found in DB.');
-            continue;
-          }
-
-          // Build in-memory Buffer payload
-          let bufferPayload;
-          if (job.print_type === 'KOT') {
-            bufferPayload = this.buildKOTPayload(order, items, job, receiptSettings);
-          } else {
-            bufferPayload = this.buildReceiptPayload(order, items, restaurant, job, receiptSettings);
-          }
-
-          // Send to printer TCP socket or virtual socket emulator
-          await this.sendToPrinterSocket(job.ip_address || '127.0.0.1', job.port || 9100, bufferPayload);
-          
-          await PrintQueueRepository.updateJobStatus(job.id, 'SUCCESS');
-        } catch (jobErr) {
-          console.error(`[Print Job ${job.id} Error]`, jobErr.message);
-          if ((job.retry_count || 0) >= 2) {
-            await PrintQueueRepository.updateJobStatus(job.id, 'FAILED', jobErr.message);
-          } else {
-            await PrintQueueRepository.incrementRetry(job.id, jobErr.message);
-          }
-        }
-      }
+      // Process all pending jobs IN PARALLEL per printer/tenant so one failed job never blocks others!
+      await Promise.allSettled(pendingJobs.map(job => this.processSingleJob(job)));
     } catch (err) {
       console.error('[Process Pending Queue Error]', err);
     }
@@ -373,9 +457,9 @@ class PrinterService {
   }
 }
 
-// Start continuous background print queue poller (every 4 seconds)
+// Continuous background print queue poller safety tick (every 1 second)
 setInterval(() => {
-  PrinterService.processPendingQueue();
-}, 4000);
+  PrinterService.processPendingQueue().catch(err => console.error('[Poller Error]', err));
+}, 1000);
 
 module.exports = PrinterService;

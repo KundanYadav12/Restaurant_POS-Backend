@@ -164,6 +164,13 @@ async function initDBSchema() {
         retry_count INT DEFAULT 0,
         error_message TEXT DEFAULT NULL,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        backend_received_at DATETIME DEFAULT NULL,
+        gateway_polled_at DATETIME DEFAULT NULL,
+        connection_started_at DATETIME DEFAULT NULL,
+        connected_at DATETIME DEFAULT NULL,
+        data_sent_at DATETIME DEFAULT NULL,
+        completed_at DATETIME DEFAULT NULL,
+        total_duration_ms INT DEFAULT NULL,
         printed_at DATETIME DEFAULT NULL
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
     `);

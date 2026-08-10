@@ -4,20 +4,71 @@ class PrintQueueRepository {
   /**
    * Enqueue a new print job into the print_queue table with pre-formatted ESC/POS payload
    */
+  /**
+   * Enqueue a new print job into the print_queue table with pre-formatted ESC/POS payload & timestamps
+   */
   static async enqueue(job) {
-    const { restaurant_id, order_id, printer_id, print_type, payload_base64 } = job;
+    const { restaurant_id, order_id, printer_id, print_type, payload_base64, backend_received_at } = job;
+    const receivedTime = backend_received_at ? new Date(backend_received_at) : new Date();
+
     const [result] = await pool.execute(
-      'INSERT INTO print_queue (restaurant_id, order_id, printer_id, payload_base64, print_type, status, retry_count, created_at) ' +
-      'VALUES (?, ?, ?, ?, ?, "PENDING", 0, NOW())',
+      'INSERT INTO print_queue (restaurant_id, order_id, printer_id, payload_base64, print_type, status, retry_count, created_at, backend_received_at) ' +
+      'VALUES (?, ?, ?, ?, ?, "PENDING", 0, NOW(), ?)',
       [
         restaurant_id, 
         order_id, 
         printer_id || null, 
         payload_base64 || null, 
-        print_type || 'RECEIPT'
+        print_type || 'RECEIPT',
+        receivedTime
       ]
     );
     return result.insertId;
+  }
+
+  /**
+   * Atomic Job Lock: Claims a pending job for processing so no other worker picks it up simultaneously.
+   */
+  static async claimJob(jobId) {
+    const [result] = await pool.execute(
+      'UPDATE print_queue SET status = "PRINTING", connection_started_at = NOW() WHERE id = ? AND status = "PENDING"',
+      [jobId]
+    );
+    return result.affectedRows > 0;
+  }
+
+  /**
+   * Mark jobs as polled by Gateway Agent with gateway_polled_at timestamp
+   */
+  static async markJobsPolled(jobIds) {
+    if (!jobIds || jobIds.length === 0) return;
+    const placeholders = jobIds.map(() => '?').join(',');
+    await pool.query(
+      `UPDATE print_queue SET gateway_polled_at = NOW() WHERE id IN (${placeholders}) AND gateway_polled_at IS NULL`,
+      jobIds
+    );
+  }
+
+  /**
+   * Update specific print job progress timestamps
+   */
+  static async updateJobTiming(jobId, timingData) {
+    const { connected_at, data_sent_at, completed_at, total_duration_ms } = timingData;
+    await pool.execute(
+      `UPDATE print_queue SET 
+        connected_at = COALESCE(?, connected_at),
+        data_sent_at = COALESCE(?, data_sent_at),
+        completed_at = COALESCE(?, completed_at),
+        total_duration_ms = COALESCE(?, total_duration_ms)
+       WHERE id = ?`,
+      [
+        connected_at ? new Date(connected_at) : null,
+        data_sent_at ? new Date(data_sent_at) : null,
+        completed_at ? new Date(completed_at) : null,
+        total_duration_ms || null,
+        jobId
+      ]
+    );
   }
 
   /**
@@ -56,8 +107,8 @@ class PrintQueueRepository {
    */
   static async updateJobStatus(jobId, status, errorMessage = null) {
     const [result] = await pool.execute(
-      'UPDATE print_queue SET status = ?, error_message = ?, printed_at = IF(? = "SUCCESS", NOW(), printed_at) WHERE id = ?',
-      [status, errorMessage || null, status, jobId]
+      'UPDATE print_queue SET status = ?, error_message = ?, printed_at = IF(? = "SUCCESS", NOW(), printed_at), completed_at = IF(? = "SUCCESS", NOW(), completed_at) WHERE id = ?',
+      [status, errorMessage || null, status, status, jobId]
     );
     return result.affectedRows > 0;
   }

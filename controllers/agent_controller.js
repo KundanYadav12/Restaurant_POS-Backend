@@ -72,6 +72,12 @@ class AgentController {
       const limit = req.query.limit || 20;
       const jobs = await PrintQueueRepository.getPendingJobsForRestaurant(restaurantId, limit);
       
+      if (jobs.length > 0) {
+        const jobIds = jobs.map(j => j.id);
+        await PrintQueueRepository.markJobsPolled(jobIds);
+        console.log(`[GATEWAY POLL] Print Gateway retrieved ${jobs.length} job(s) for Restaurant #${restaurantId} (Job IDs: ${jobIds.join(', ')})`);
+      }
+
       const printers = await PrinterRepository.getAll(restaurantId);
 
       return res.json({
@@ -90,7 +96,7 @@ class AgentController {
    * Acknowledge print job completion or failure
    */
   static async acknowledgeJob(req, res) {
-    const { job_id, status, error_message } = req.body;
+    const { job_id, status, error_message, timing } = req.body;
     if (!job_id || !status) {
       return res.status(400).json({ error: 'job_id and status are required.' });
     }
@@ -105,6 +111,12 @@ class AgentController {
       if (!success) {
         return res.status(404).json({ error: 'Print job not found.' });
       }
+
+      if (timing) {
+        await PrintQueueRepository.updateJobTiming(job_id, timing);
+      }
+
+      console.log(`[GATEWAY ACK] Job #${job_id} status: ${status} ${error_message ? `(Error: ${error_message})` : '(Success)'}`);
 
       return res.json({ message: 'Job status updated successfully.', job_id, status });
     } catch (err) {
