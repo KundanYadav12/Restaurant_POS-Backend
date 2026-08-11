@@ -27,10 +27,52 @@ const PORT = process.env.PORT || 5000;
 app.set('trust proxy', 'loopback, linklocal, uniquelocal');
 
 // Security Middlewares
-app.use(helmet({
-  crossOriginResourcePolicy: { policy: "cross-origin" }
-}));
-app.use(cors());
+// Dynamic Multi-Domain CORS Configuration (Supports restrocaptain.online, www.restrocaptain.online & DuckDNS)
+const defaultAllowedOrigins = [
+  'https://restrocaptain.online',
+  'https://www.restrocaptain.online',
+  'http://restrocaptain.online',
+  'http://www.restrocaptain.online',
+  'https://fastorder.duckdns.org',
+  'http://fastorder.duckdns.org',
+  'https://fastfood.duckdns.org',
+  'http://fastfood.duckdns.org',
+  'http://localhost:3000',
+  'http://localhost:5173',
+  'http://localhost:5000',
+  'http://localhost:5004',
+  'http://127.0.0.1:3000',
+  'http://127.0.0.1:5173',
+  'http://127.0.0.1:5000',
+  'http://127.0.0.1:5004'
+];
+
+const envAllowedOrigins = process.env.ALLOWED_ORIGINS
+  ? process.env.ALLOWED_ORIGINS.split(',').map(o => o.trim()).filter(Boolean)
+  : [];
+
+const allowedOrigins = Array.from(new Set([...defaultAllowedOrigins, ...envAllowedOrigins]));
+
+const corsOptions = {
+  origin: (origin, callback) => {
+    if (!origin) return callback(null, true);
+    
+    if (allowedOrigins.includes(origin) || allowedOrigins.includes('*')) {
+      return callback(null, true);
+    }
+
+    if (origin.endsWith('.duckdns.org') || origin.endsWith('.restrocaptain.online')) {
+      return callback(null, true);
+    }
+
+    return callback(null, true);
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Device-Token', 'X-Requested-With', 'Accept', 'Origin']
+};
+
+app.use(cors(corsOptions));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
