@@ -134,6 +134,7 @@ async function initDBSchema() {
       CREATE TABLE IF NOT EXISTS printers (
         id INT AUTO_INCREMENT PRIMARY KEY,
         restaurant_id INT NOT NULL,
+        device_id INT DEFAULT NULL,
         name VARCHAR(100) NOT NULL,
         type VARCHAR(20) DEFAULT 'lan',
         ip_address VARCHAR(50) NOT NULL,

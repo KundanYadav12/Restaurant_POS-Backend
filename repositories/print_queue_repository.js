@@ -80,7 +80,7 @@ class PrintQueueRepository {
       `SELECT q.*, p.name as printer_name, p.ip_address, p.port, p.paper_width, p.role, p.type as printer_type, p.auto_cut, p.cash_drawer 
        FROM print_queue q 
        LEFT JOIN printers p ON q.printer_id = p.id 
-       WHERE q.restaurant_id = ? AND q.status = "PENDING" AND q.retry_count < 3 
+       WHERE q.restaurant_id = ? AND (q.status = "PENDING" OR (q.status = "PRINTING" AND q.gateway_polled_at IS NULL)) AND q.retry_count < 3 
        ORDER BY q.id ASC LIMIT ${parsedLimit}`,
       [restaurantId]
     );

@@ -350,10 +350,6 @@ class PrinterService {
   static async processSingleJob(job) {
     const tJobStart = Date.now();
     
-    // Atomically claim job to ensure no duplicate worker execution
-    const claimed = await PrintQueueRepository.claimJob(job.id);
-    if (!claimed) return; // Another worker or poller tick already claimed this job!
-
     try {
       // Prevent cloud backend from socket printing when Desktop Print Gateway is active for the outlet
       const hasGateway = await DeviceRepository.hasActiveGatewayDevice(job.restaurant_id);
@@ -361,6 +357,10 @@ class PrinterService {
         // Job is reserved for Desktop Print Gateway polling via /api/agent/print-jobs/poll
         return;
       }
+
+      // Atomically claim job to ensure no duplicate worker execution
+      const claimed = await PrintQueueRepository.claimJob(job.id);
+      if (!claimed) return; // Another worker or poller tick already claimed this job!
 
       // Only attempt direct socket printing if IP is non-private or virtual mock
       const targetIp = job.ip_address || '';

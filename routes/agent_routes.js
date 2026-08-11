@@ -34,6 +34,8 @@ router.post('/register-device', authenticateToken, AgentController.registerDevic
 
 // Permanent background polling, ACK, and heartbeat routes (Device-authenticated)
 router.get('/print-jobs/poll', authenticateDeviceOrUser, AgentController.getPendingJobs);
+router.get('/printers', authenticateDeviceOrUser, AgentController.getPrinters);
+router.get('/devices', authenticateToken, AgentController.getDevices);
 router.post('/print-jobs/ack', authenticateDeviceOrUser, AgentController.acknowledgeJob);
 router.post('/heartbeat', authenticateDeviceOrUser, AgentController.sendHeartbeat);
 

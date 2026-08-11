@@ -52,6 +52,10 @@ class DeviceRepository {
     return rows;
   }
 
+  static async getDevicesByRestaurant(restaurantId) {
+    return this.getDevicesForRestaurant(restaurantId);
+  }
+
   /**
    * Check if a restaurant has an active Desktop Print Gateway device seen recently (last 15 minutes)
    */

@@ -23,6 +23,10 @@ class AgentController {
       const deviceId = await DeviceRepository.createDevice(restaurantId, name, deviceToken, req.ip);
       const restaurant = await SuperAdminRepository.getRestaurantById(restaurantId);
 
+      // Auto-assign existing unassigned printers for this restaurant to this newly registered Gateway
+      await PrinterRepository.assignUnassignedPrintersToDevice(restaurantId, deviceId);
+      const assignedPrinters = await PrinterRepository.getPrintersForDevice(restaurantId, deviceId);
+
       return res.json({
         success: true,
         message: 'Print Gateway Device registered successfully.',
@@ -31,7 +35,8 @@ class AgentController {
         device_name: name,
         restaurant_id: restaurantId,
         restaurant_name: restaurant ? restaurant.name : 'Restaurant POS',
-        branch_name: restaurant ? (restaurant.branch_name || 'Main Branch') : 'Main Branch'
+        branch_name: restaurant ? (restaurant.branch_name || 'Main Branch') : 'Main Branch',
+        printers: assignedPrinters
       });
     } catch (err) {
       console.error('[Register Device Error]', err);
@@ -83,23 +88,70 @@ class AgentController {
         console.log(`[GATEWAY POLL] Print Gateway retrieved ${jobs.length} job(s) for Restaurant #${restaurantId} (Job IDs: ${jobIds.join(', ')})`);
       }
 
-      const printers = await PrinterRepository.getAll(restaurantId);
+      const deviceId = req.device ? req.device.id : null;
+      const printers = await PrinterRepository.getPrintersForDevice(restaurantId, deviceId);
 
-      // Support explicit format override or dual-compatible default response
-      if (req.query.format === 'verbose') {
-        return res.json({
-          jobs,
-          printers,
-          restaurant_name: req.device ? req.device.restaurant_name : (req.user ? req.user.restaurant_name : 'Restaurant POS'),
-          server_timestamp: new Date()
-        });
+      if (req.query.format === 'array') {
+        return res.json(jobs);
       }
 
-      // Default: Return jobs array directly so Array.isArray(res.json()) is true for CLI print daemons
-      return res.json(jobs);
+      return res.json({
+        jobs,
+        printers,
+        restaurant_id: restaurantId,
+        restaurant_name: req.device ? req.device.restaurant_name : (req.user ? req.user.restaurant_name : 'Restaurant POS'),
+        device_id: deviceId,
+        device_name: req.device ? req.device.device_name : null,
+        server_timestamp: new Date()
+      });
     } catch (err) {
       console.error('[Agent Get Pending Jobs Error]', err);
       return res.status(500).json({ error: 'Failed to retrieve pending print jobs.' });
+    }
+  }
+
+  /**
+   * Dedicated endpoint to fetch all active thermal printers for the outlet
+   */
+  static async getPrinters(req, res) {
+    try {
+      const restaurantId = await AgentController.resolveRestaurantId(req);
+      if (!restaurantId) {
+        return res.status(401).json({ error: 'Unauthorized. Invalid device token or user session.' });
+      }
+
+      const deviceId = req.device ? req.device.id : null;
+      const printers = await PrinterRepository.getPrintersForDevice(restaurantId, deviceId);
+
+      return res.json({
+        success: true,
+        restaurant_id: restaurantId,
+        restaurant_name: req.device ? req.device.restaurant_name : (req.user ? req.user.restaurant_name : 'Restaurant POS'),
+        device_id: deviceId,
+        device_name: req.device ? req.device.device_name : null,
+        printers
+      });
+    } catch (err) {
+      console.error('[Agent Get Printers Error]', err);
+      return res.status(500).json({ error: 'Failed to retrieve active printers.' });
+    }
+  }
+
+  /**
+   * Fetch all registered gateway devices for a restaurant (used in Admin Panel)
+   */
+  static async getDevices(req, res) {
+    try {
+      const restaurantId = req.user.restaurant_id;
+      if (!restaurantId) {
+        return res.status(400).json({ error: 'User is not associated with a restaurant tenant.' });
+      }
+
+      const devices = await DeviceRepository.getDevicesByRestaurant(restaurantId);
+      return res.json(devices);
+    } catch (err) {
+      console.error('[Get Devices Error]', err);
+      return res.status(500).json({ error: 'Failed to retrieve registered gateway devices.' });
     }
   }
 
