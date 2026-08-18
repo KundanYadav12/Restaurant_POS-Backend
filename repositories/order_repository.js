@@ -1,6 +1,15 @@
 const pool = require('../config/db');
 
 class OrderRepository {
+  static async getByIdempotencyKey(restaurantId, idempotencyKey) {
+    if (!idempotencyKey) return null;
+    const [rows] = await pool.execute(
+      'SELECT id, unique_order_number, total_amount, order_status FROM orders WHERE restaurant_id = ? AND idempotency_key = ? LIMIT 1',
+      [restaurantId, idempotencyKey]
+    );
+    return rows[0] || null;
+  }
+
   /**
    * Complete transactional order creation
    */
@@ -30,8 +39,28 @@ class OrderRepository {
           discount_type,
           discount_value,
           customer_name,
-          customer_phone
+          customer_phone,
+          idempotency_key
         } = orderData;
+
+        // Check idempotency inside transaction for strict race-condition safety
+        if (idempotency_key) {
+          const [dupRows] = await connection.execute(
+            'SELECT id, unique_order_number FROM orders WHERE restaurant_id = ? AND idempotency_key = ? LIMIT 1',
+            [restaurantId, idempotency_key]
+          );
+          if (dupRows.length > 0) {
+            await connection.rollback();
+            connection.release();
+            return {
+              order: {
+                id: dupRows[0].id,
+                unique_order_number: dupRows[0].unique_order_number
+              },
+              isDuplicate: true
+            };
+          }
+        }
 
         const safeSubtotal = isNaN(parseFloat(subtotal)) ? 0.00 : parseFloat(subtotal);
         const safeTaxAmount = isNaN(parseFloat(tax_amount)) ? 0.00 : parseFloat(tax_amount);
@@ -57,33 +86,30 @@ class OrderRepository {
 
         // Concurrency-Safe Atomic Sequence Generator (Deadlock-Free MySQL LAST_INSERT_ID Pattern)
         const getNextSequence = async () => {
-          // Step A: Ensure order_sequences is initialized for today with MAX existing order sequence
-          const [existingSeq] = await pool.query(
-            'SELECT last_seq FROM order_sequences WHERE restaurant_id = ? AND order_date = ?',
+          const [curSeq] = await connection.execute(
+            'SELECT max_seq FROM order_sequences WHERE restaurant_id = ? AND date_str = ? FOR UPDATE',
             [restaurantId, dateStr]
           );
 
-          if (existingSeq.length === 0) {
-            // Find latest order sequence from orders table for today so existing orders are respected
-            const [maxRows] = await pool.query(
-              `SELECT MAX(CAST(SUBSTRING_INDEX(unique_order_number, '-', -1) AS UNSIGNED)) AS max_seq 
-               FROM orders 
-               WHERE restaurant_id = ? AND unique_order_number LIKE ?`,
+          if (curSeq.length === 0) {
+            const [maxOrd] = await connection.execute(
+              'SELECT unique_order_number FROM orders WHERE restaurant_id = ? AND unique_order_number LIKE ? ORDER BY id DESC LIMIT 1',
               [restaurantId, `${datePrefix}%`]
             );
-            const initialSeq = maxRows[0]?.max_seq ? parseInt(maxRows[0].max_seq, 10) : 0;
-
-            await pool.query(
-              'INSERT IGNORE INTO order_sequences (restaurant_id, order_date, last_seq) VALUES (?, ?, ?)',
-              [restaurantId, dateStr, isNaN(initialSeq) ? 0 : initialSeq]
+            let startSeq = 0;
+            if (maxOrd.length > 0) {
+              const parts = maxOrd[0].unique_order_number.split('-');
+              const lastSeqNum = parseInt(parts[parts.length - 1], 10);
+              if (!isNaN(lastSeqNum)) startSeq = lastSeqNum;
+            }
+            await connection.execute(
+              'INSERT INTO order_sequences (restaurant_id, date_str, max_seq) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE max_seq = GREATEST(max_seq, VALUES(max_seq))',
+              [restaurantId, dateStr, startSeq]
             );
           }
 
-          // Step B: Atomic increment using MySQL's native LAST_INSERT_ID(last_seq + 1)
-          const [seqResult] = await pool.query(
-            `INSERT INTO order_sequences (restaurant_id, order_date, last_seq) 
-             VALUES (?, ?, 1) 
-             ON DUPLICATE KEY UPDATE last_seq = LAST_INSERT_ID(last_seq + 1)`,
+          const [seqResult] = await connection.execute(
+            'UPDATE order_sequences SET max_seq = LAST_INSERT_ID(max_seq + 1) WHERE restaurant_id = ? AND date_str = ?',
             [restaurantId, dateStr]
           );
 
@@ -96,10 +122,10 @@ class OrderRepository {
 
         // 3. Insert Order
         const [orderResult] = await connection.execute(
-          'INSERT INTO orders (unique_order_number, restaurant_id, cashier_id, cashier_name, subtotal, tax_amount, discount_amount, total_amount, payment_mode, payment_details, order_status, cashier_shift_id, table_number_or_takeaway, notes, kitchen_status, discount_type, discount_value, customer_name, customer_phone) ' +
-          'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "pending", ?, ?, ?, ?)',
+          'INSERT INTO orders (unique_order_number, idempotency_key, restaurant_id, cashier_id, cashier_name, subtotal, tax_amount, discount_amount, total_amount, payment_mode, payment_details, order_status, cashier_shift_id, table_number_or_takeaway, notes, kitchen_status, discount_type, discount_value, customer_name, customer_phone) ' +
+          'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "pending", ?, ?, ?, ?)',
           [
-            uniqueOrderNumber, restaurantId, cashier_id, cashier_name, safeSubtotal, safeTaxAmount,
+            uniqueOrderNumber, idempotency_key || null, restaurantId, cashier_id, cashier_name, safeSubtotal, safeTaxAmount,
             safeDiscountAmount, safeTotalAmount, payment_mode, payment_details ? JSON.stringify(payment_details) : null,
             orderStatus, safeCashierShiftId, table_number_or_takeaway || 'Takeaway', notes || null,
             discount_type || 'amount', parseFloat(discount_value || 0), customer_name || null, customer_phone || null

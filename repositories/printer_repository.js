@@ -116,7 +116,7 @@ class PrinterRepository {
 
   static async create(restaurantId, printer) {
     const {
-      name, device_id, type, ip_address, port, paper_width, character_encoding,
+      name, device_id, type, ip_address, bluetooth_address, port, paper_width, character_encoding,
       role, is_default_receipt, is_default_kot, auto_cut, cash_drawer
     } = printer;
 
@@ -128,10 +128,10 @@ class PrinterRepository {
     }
 
     const [result] = await pool.execute(
-      'INSERT INTO printers (restaurant_id, device_id, name, type, ip_address, port, paper_width, character_encoding, role, is_default_receipt, is_default_kot, auto_cut, cash_drawer, is_active, status, created_at, updated_at) ' +
-      'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, "online", NOW(), NOW())',
+      'INSERT INTO printers (restaurant_id, device_id, name, type, ip_address, bluetooth_address, port, paper_width, character_encoding, role, is_default_receipt, is_default_kot, auto_cut, cash_drawer, is_active, status, created_at, updated_at) ' +
+      'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, "online", NOW(), NOW())',
       [
-        restaurantId, device_id || null, name, type || 'lan', ip_address, port || 9100,
+        restaurantId, device_id || null, name, type || 'lan', ip_address || null, bluetooth_address || null, port || 9100,
         paper_width || '80', character_encoding || 'UTF-8', role || 'receipt',
         is_default_receipt ? 1 : 0, is_default_kot ? 1 : 0,
         auto_cut !== undefined ? (auto_cut ? 1 : 0) : 1,
@@ -143,7 +143,7 @@ class PrinterRepository {
 
   static async update(id, restaurantId, printer) {
     const {
-      name, device_id, type, ip_address, port, paper_width, character_encoding,
+      name, device_id, type, ip_address, bluetooth_address, port, paper_width, character_encoding,
       role, is_default_receipt, is_default_kot, auto_cut, cash_drawer, is_active, status
     } = printer;
 
@@ -155,9 +155,9 @@ class PrinterRepository {
     }
 
     const [result] = await pool.execute(
-      'UPDATE printers SET name = ?, device_id = ?, type = ?, ip_address = ?, port = ?, paper_width = ?, character_encoding = ?, role = ?, is_default_receipt = ?, is_default_kot = ?, auto_cut = ?, cash_drawer = ?, is_active = ?, status = ?, updated_at = NOW() WHERE id = ? AND restaurant_id = ?',
+      'UPDATE printers SET name = ?, device_id = ?, type = ?, ip_address = ?, bluetooth_address = ?, port = ?, paper_width = ?, character_encoding = ?, role = ?, is_default_receipt = ?, is_default_kot = ?, auto_cut = ?, cash_drawer = ?, is_active = ?, status = ?, updated_at = NOW() WHERE id = ? AND restaurant_id = ?',
       [
-        name, device_id || null, type || 'lan', ip_address, port || 9100, paper_width || '80', character_encoding || 'UTF-8',
+        name, device_id || null, type || 'lan', ip_address || null, bluetooth_address || null, port || 9100, paper_width || '80', character_encoding || 'UTF-8',
         role || 'receipt', is_default_receipt ? 1 : 0, is_default_kot ? 1 : 0,
         auto_cut !== undefined ? (auto_cut ? 1 : 0) : 1,
         cash_drawer !== undefined ? (cash_drawer ? 1 : 0) : 1,

@@ -15,7 +15,8 @@ class OrderController {
 
     const { 
       items, payment_mode, payment_details, subtotal, tax_amount, discount_amount, total_amount, 
-      table_number_or_takeaway, notes, status, discount_type, discount_value, customer_name, customer_phone, print_actions 
+      table_number_or_takeaway, notes, status, discount_type, discount_value, customer_name, customer_phone, print_actions,
+      idempotency_key, offline_id
     } = req.body;
 
     if (!items || !Array.isArray(items) || items.length === 0) {
@@ -37,6 +38,8 @@ class OrderController {
         return res.status(400).json({ error: 'No active shift found. Please log in again to open a shift.' });
       }
 
+      const safeIdempotencyKey = idempotency_key || offline_id || null;
+
       // Consolidate order insert parameters
       const orderData = {
         cashier_id: cashierId,
@@ -54,7 +57,8 @@ class OrderController {
         discount_type,
         discount_value,
         customer_name,
-        customer_phone
+        customer_phone,
+        idempotency_key: safeIdempotencyKey
       };
 
       // Transactional save to DB
