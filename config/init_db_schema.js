@@ -85,7 +85,8 @@ async function initDBSchema() {
       { name: 'is_verified', spec: 'TINYINT(1) DEFAULT 0' },
       { name: 'verified_at', spec: 'DATETIME DEFAULT NULL' },
       { name: 'temp_password', spec: 'VARCHAR(255) DEFAULT NULL' },
-      { name: 'last_login_at', spec: 'DATETIME DEFAULT NULL' }
+      { name: 'last_login_at', spec: 'DATETIME DEFAULT NULL' },
+      { name: 'active_session_id', spec: 'VARCHAR(255) DEFAULT NULL' }
     ];
 
     for (const col of userColumns) {

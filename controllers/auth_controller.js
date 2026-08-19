@@ -1,5 +1,6 @@
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const crypto = require('crypto');
 const pool = require('../config/db');
 const UserRepository = require('../repositories/user_repository');
 const SuperAdminRepository = require('../repositories/superadmin_repository');
@@ -49,17 +50,20 @@ class AuthController {
         }
       }
 
+      const sessionId = crypto.randomUUID();
+
       const tokenPayload = {
         id: user.id,
         restaurant_id: user.restaurant_id,
         role: user.role,
-        shift_id: activeShiftId
+        shift_id: activeShiftId,
+        session_id: sessionId
       };
 
       const accessToken = jwt.sign(tokenPayload, JWT_SECRET, { expiresIn: JWT_EXPIRY });
       const refreshToken = jwt.sign(tokenPayload, JWT_REFRESH_SECRET, { expiresIn: JWT_REFRESH_EXPIRY });
 
-      await pool.query('UPDATE users SET last_login_at = NOW() WHERE id = ?', [user.id]);
+      await pool.query('UPDATE users SET active_session_id = ?, last_login_at = NOW() WHERE id = ?', [sessionId, user.id]);
       await SuperAdminRepository.addAuditLog(user.restaurant_id, user.id, 'LOGIN', 'Logged into the system successfully', ipAddress);
 
       return res.json({
@@ -219,15 +223,19 @@ class AuthController {
       await UserRepository.activateUserPassword(user.id, passwordHash);
 
       // 4. Generate login tokens
+      const sessionId = crypto.randomUUID();
+
       const tokenPayload = {
         id: user.id,
         restaurant_id: user.restaurant_id,
-        role: user.role
+        role: user.role,
+        session_id: sessionId
       };
 
       const accessToken = jwt.sign(tokenPayload, JWT_SECRET, { expiresIn: JWT_EXPIRY });
       const refreshToken = jwt.sign(tokenPayload, JWT_REFRESH_SECRET, { expiresIn: JWT_REFRESH_EXPIRY });
 
+      await pool.query('UPDATE users SET active_session_id = ?, last_login_at = NOW() WHERE id = ?', [sessionId, user.id]);
       await SuperAdminRepository.addAuditLog(user.restaurant_id, user.id, 'ACCOUNT_ACTIVATE', 'Owner account activated via OTP & password set.', req.ip);
 
       return res.json({
@@ -390,6 +398,9 @@ class AuthController {
     const ipAddress = req.ip || req.headers['x-forwarded-for'] || req.socket.remoteAddress;
     try {
       const user = req.user;
+      if (user && user.id) {
+        await pool.query('UPDATE users SET active_session_id = NULL WHERE id = ?', [user.id]);
+      }
       if (user && user.role === 'cashier' && user.restaurant_id) {
         const shift = await UserRepository.getOpenShift(user.restaurant_id, user.id);
         if (shift) {
@@ -417,17 +428,29 @@ class AuthController {
         return res.status(403).json({ error: 'Invalid user or deactivated account.', code: 'USER_INACTIVE' });
       }
 
+      // Single-Device Login Enforcement on Refresh Token
+      if (!user.active_session_id || !decoded.session_id || user.active_session_id !== decoded.session_id) {
+        console.warn(`[Single Device Lock] User ID ${user.id} logged in on another device. Rejecting refresh token.`);
+        return res.status(401).json({
+          error: 'You have been logged out because your account was logged in from another device.',
+          code: 'LOGGED_IN_ELSEWHERE'
+        });
+      }
+
       let activeShiftId = decoded.shift_id;
       if (user.role === 'cashier' && user.restaurant_id) {
         const shift = await UserRepository.getOpenShift(user.restaurant_id, user.id);
         activeShiftId = shift ? shift.id : null;
       }
 
+      const activeSessionId = user.active_session_id || decoded.session_id;
+
       const tokenPayload = {
         id: user.id,
         restaurant_id: user.restaurant_id,
         role: user.role,
-        shift_id: activeShiftId
+        shift_id: activeShiftId,
+        session_id: activeSessionId
       };
 
       const accessToken = jwt.sign(tokenPayload, JWT_SECRET, { expiresIn: JWT_EXPIRY });

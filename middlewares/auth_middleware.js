@@ -18,7 +18,7 @@ async function authenticateToken(req, res, next) {
     
     // Fetch user details to verify state
     const [rows] = await pool.execute(
-      'SELECT u.id, u.restaurant_id, u.name, u.username, u.role, u.is_active, r.subscription_status, r.subscription_expires_at, r.name as restaurant_name ' +
+      'SELECT u.id, u.restaurant_id, u.name, u.username, u.role, u.is_active, u.active_session_id, r.subscription_status, r.subscription_expires_at, r.name as restaurant_name ' +
       'FROM users u LEFT JOIN restaurants r ON u.restaurant_id = r.id ' +
       'WHERE u.id = ? AND u.is_active = 1',
       [decoded.id]
@@ -29,6 +29,17 @@ async function authenticateToken(req, res, next) {
     }
 
     const user = rows[0];
+
+    // Single-Device Login Enforcement:
+    // Every valid session must have active_session_id matching decoded.session_id.
+    if (!user.active_session_id || !decoded.session_id || user.active_session_id !== decoded.session_id) {
+      console.warn(`[Single Device Lock] User ID ${user.id} (@${user.username}) token rejected (DB session: ${user.active_session_id}, Token session: ${decoded.session_id}).`);
+      return res.status(401).json({
+        error: 'You have been logged out because your account was logged in from another device.',
+        code: 'LOGGED_IN_ELSEWHERE'
+      });
+    }
+
     const userRole = (user.role || '').toLowerCase();
     const isSuperAdmin = userRole === 'super_admin' || userRole === 'superadmin';
 
