@@ -5,8 +5,8 @@ const router = express.Router();
 
 router.use(authenticateToken);
 
-// Only cashier role can place active ticket orders
-router.post('/', authorizeRoles('cashier'), OrderController.create);
+// Staff members can place active ticket orders
+router.post('/', authorizeRoles('cashier', 'admin', 'manager', 'owner', 'super_admin', 'superadmin'), OrderController.create);
 router.get('/', OrderController.getAll);
 router.get('/history/list', OrderController.getHistory);
 router.get('/history/export-excel', OrderController.exportHistoryExcel);

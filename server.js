@@ -17,6 +17,7 @@ const receiptRoutes = require('./routes/receipt_routes');
 const inventoryRoutes = require('./routes/inventory_routes');
 const agentRoutes = require('./routes/agent_routes');
 const syncRoutes = require('./routes/sync_routes');
+const profileRoutes = require('./routes/profile_routes');
 
 const { apiLimiter, authLimiter } = require('./middlewares/rate_limiter_middleware');
 
@@ -107,6 +108,7 @@ app.use('/api/reports', reportRoutes);
 app.use('/api/inventory', inventoryRoutes);
 app.use('/api/superadmin', superAdminRoutes);
 app.use('/api/settings/receipt', receiptRoutes);
+app.use('/api/settings/profile', profileRoutes);
 app.use('/api/agent', agentRoutes);
 app.use('/api/sync', syncRoutes);
 

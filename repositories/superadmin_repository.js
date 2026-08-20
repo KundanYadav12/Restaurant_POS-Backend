@@ -123,10 +123,15 @@ class SuperAdminRepository {
   }
 
   static async getGlobalAuditLogs(limit = 100, offset = 0) {
-    const parsedLimit = Math.max(1, parseInt(limit) || 50);
+    const parsedLimit = Math.max(1, parseInt(limit) || 100);
     const parsedOffset = Math.max(0, parseInt(offset) || 0);
     const [rows] = await pool.query(
-      `SELECT a.*, r.name as restaurant_name, u.username 
+      `SELECT a.*, 
+              r.name as current_restaurant_name, 
+              r.logo_url as current_restaurant_logo,
+              u.username as user_username, 
+              u.name as fallback_user_name, 
+              u.role as fallback_user_role 
        FROM audit_logs a 
        LEFT JOIN restaurants r ON a.restaurant_id = r.id 
        LEFT JOIN users u ON a.user_id = u.id 
@@ -161,11 +166,39 @@ class SuperAdminRepository {
     }
   }
 
-  static async addAuditLog(restaurantId, userId, action, description, ipAddress) {
+  static async addAuditLog(restaurantId, userId, action, description, ipAddress, extraDetails = {}) {
     try {
+      const { user_name, user_role, prev_name, new_name, prev_logo, new_logo, metadata } = extraDetails;
+      
+      let finalUserName = user_name || null;
+      let finalUserRole = user_role || null;
+
+      if (userId && (!finalUserName || !finalUserRole)) {
+        try {
+          const [uRows] = await pool.query('SELECT name, role FROM users WHERE id = ?', [userId]);
+          if (uRows.length > 0) {
+            finalUserName = finalUserName || uRows[0].name;
+            finalUserRole = finalUserRole || uRows[0].role;
+          }
+        } catch (e) {}
+      }
+
       await pool.execute(
-        'INSERT INTO audit_logs (restaurant_id, user_id, action, description, ip_address) VALUES (?, ?, ?, ?, ?)',
-        [restaurantId || null, userId || null, action || 'ACTION', description || null, ipAddress || null]
+        'INSERT INTO audit_logs (restaurant_id, user_id, action, description, ip_address, user_name, user_role, prev_name, new_name, prev_logo, new_logo, metadata) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        [
+          restaurantId || null,
+          userId || null,
+          action || 'ACTION',
+          description || null,
+          ipAddress || null,
+          finalUserName,
+          finalUserRole,
+          prev_name || null,
+          new_name || null,
+          prev_logo || null,
+          new_logo || null,
+          metadata ? JSON.stringify(metadata) : null
+        ]
       );
     } catch (err) {
       console.warn('[Audit Log Warning]', err.message);

@@ -66,6 +66,12 @@ class AuthController {
       await pool.query('UPDATE users SET active_session_id = ?, last_login_at = NOW() WHERE id = ?', [sessionId, user.id]);
       await SuperAdminRepository.addAuditLog(user.restaurant_id, user.id, 'LOGIN', 'Logged into the system successfully', ipAddress);
 
+      let restInfo = {};
+      if (user.restaurant_id) {
+        const [rRows] = await pool.query('SELECT name, logo_url FROM restaurants WHERE id = ?', [user.restaurant_id]);
+        if (rRows.length > 0) restInfo = rRows[0];
+      }
+
       return res.json({
         message: 'Login successful',
         accessToken,
@@ -77,6 +83,8 @@ class AuthController {
           email: user.email,
           role: user.role,
           restaurant_id: user.restaurant_id,
+          restaurant_name: restInfo.name || user.name || 'Restaurant POS',
+          restaurant_logo_url: restInfo.logo_url || null,
           shift_id: activeShiftId,
           must_change_password: Boolean(user.must_change_password),
           is_verified: Boolean(user.is_verified)

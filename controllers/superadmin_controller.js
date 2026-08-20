@@ -87,7 +87,21 @@ class SuperAdminController {
         restaurantId
       });
 
-      await SuperAdminRepository.addAuditLog(null, req.user.id, 'TENANT_CREATE', `Created restaurant ${name} (ID: ${restaurantId}) & dispatched OTP invitation to ${targetEmail}`, req.ip);
+      await SuperAdminRepository.addAuditLog(
+        restaurantId,
+        req.user.id,
+        'RESTAURANT_CREATED',
+        `Restaurant '${name}' created by Super Admin (ID: ${restaurantId}) & dispatched OTP invitation to ${targetEmail}`,
+        req.ip,
+        {
+          user_name: req.user.name || 'Super Admin',
+          user_role: req.user.role || 'super_admin',
+          prev_name: null,
+          new_name: name,
+          prev_logo: null,
+          new_logo: logo_url || null
+        }
+      );
 
       return res.status(201).json({
         message: `Tenant created successfully. Verification OTP dispatched to ${targetEmail}.`,
@@ -110,6 +124,10 @@ class SuperAdminController {
     const restaurantId = req.params.id;
 
     try {
+      const existingRest = await SuperAdminRepository.getRestaurantById(restaurantId);
+      const prevName = existingRest?.name || null;
+      const prevLogo = existingRest?.logo_url || null;
+
       const success = await SuperAdminRepository.updateRestaurant(restaurantId, {
         name, domain, logo_url, address, phone, email, owner_name, owner_email, owner_mobile,
         gst_number, subscription_plan_id, max_user_limit, max_manager_limit, max_cashier_limit,
@@ -120,7 +138,26 @@ class SuperAdminController {
         return res.status(404).json({ error: 'Restaurant not found.' });
       }
 
-      await SuperAdminRepository.addAuditLog(null, req.user.id, 'TENANT_UPDATE', `Updated settings for Restaurant ID: ${restaurantId}`, req.ip);
+      if ((name && name !== prevName) || (logo_url !== undefined && logo_url !== prevLogo)) {
+        await SuperAdminRepository.addAuditLog(
+          restaurantId,
+          req.user.id,
+          'RESTAURANT_PROFILE_UPDATED',
+          `Restaurant Profile updated. Name: '${prevName}' -> '${name || prevName}'`,
+          req.ip,
+          {
+            user_name: req.user.name || 'Super Admin',
+            user_role: req.user.role || 'super_admin',
+            prev_name: prevName,
+            new_name: name || prevName,
+            prev_logo: prevLogo,
+            new_logo: logo_url !== undefined ? logo_url : prevLogo
+          }
+        );
+      } else {
+        await SuperAdminRepository.addAuditLog(restaurantId, req.user.id, 'TENANT_UPDATE', `Updated settings for Restaurant ID: ${restaurantId}`, req.ip);
+      }
+
       return res.json({ message: 'Restaurant updated successfully.' });
     } catch (err) {
       console.error(err);

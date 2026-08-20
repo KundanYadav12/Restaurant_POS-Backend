@@ -6,10 +6,11 @@ const { generateExcelWorkbook } = require('../utils/excel_helper');
 
 class OrderController {
   static async create(req, res) {
-    if (req.user.role !== 'cashier') {
+    const allowedRoles = ['cashier', 'admin', 'manager', 'owner', 'super_admin', 'superadmin'];
+    if (!allowedRoles.includes(req.user.role)) {
       return res.status(403).json({
         error: 'FORBIDDEN_ROLE',
-        message: 'Active Ticket checkout and order placement is restricted exclusively to Cashier accounts.'
+        message: 'Order placement is restricted to authorized staff accounts.'
       });
     }
 

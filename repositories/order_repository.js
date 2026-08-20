@@ -87,8 +87,8 @@ class OrderRepository {
         // Concurrency-Safe Atomic Sequence Generator (Deadlock-Free MySQL LAST_INSERT_ID Pattern)
         const getNextSequence = async () => {
           const [curSeq] = await connection.execute(
-            'SELECT max_seq FROM order_sequences WHERE restaurant_id = ? AND date_str = ? FOR UPDATE',
-            [restaurantId, dateStr]
+            'SELECT * FROM order_sequences WHERE restaurant_id = ? AND (date_str = ? OR order_date = ?) FOR UPDATE',
+            [restaurantId, dateStr, dateStr]
           );
 
           if (curSeq.length === 0) {
@@ -103,14 +103,14 @@ class OrderRepository {
               if (!isNaN(lastSeqNum)) startSeq = lastSeqNum;
             }
             await connection.execute(
-              'INSERT INTO order_sequences (restaurant_id, date_str, max_seq) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE max_seq = GREATEST(max_seq, VALUES(max_seq))',
-              [restaurantId, dateStr, startSeq]
+              'INSERT INTO order_sequences (restaurant_id, date_str, order_date, max_seq, last_seq) VALUES (?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE max_seq = GREATEST(COALESCE(max_seq, 0), VALUES(max_seq)), last_seq = GREATEST(COALESCE(last_seq, 0), VALUES(last_seq))',
+              [restaurantId, dateStr, dateStr, startSeq, startSeq]
             );
           }
 
           const [seqResult] = await connection.execute(
-            'UPDATE order_sequences SET max_seq = LAST_INSERT_ID(max_seq + 1) WHERE restaurant_id = ? AND date_str = ?',
-            [restaurantId, dateStr]
+            'UPDATE order_sequences SET max_seq = LAST_INSERT_ID(COALESCE(max_seq, 0) + 1), last_seq = COALESCE(last_seq, 0) + 1 WHERE restaurant_id = ? AND (date_str = ? OR order_date = ?)',
+            [restaurantId, dateStr, dateStr]
           );
 
           return seqResult.insertId;
@@ -148,32 +148,34 @@ class OrderRepository {
             itemTax = parseFloat(((unitPrice * itemQuantity) * (itemGstRate / 100)).toFixed(2));
           }
 
+          const menuItemId = item.menu_item_id || item.id || null;
+
           await connection.execute(
             'INSERT INTO order_items (order_id, menu_item_id, name, price, gst_rate, tax_amount, discount_amount, quantity, notes) ' +
             'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
             [
-              orderId, item.menu_item_id, item.name, unitPrice, itemGstRate,
+              orderId, menuItemId, item.name, unitPrice, itemGstRate,
               itemTax, item.discount_amount || 0.00, itemQuantity, item.notes || null
             ]
           );
 
           // Auto-deduct inventory stock for tracked menu items
-          if (item.menu_item_id) {
+          if (menuItemId) {
             const [curStockRows] = await connection.execute(
               'SELECT current_stock FROM menu_items WHERE id = ? AND restaurant_id = ?',
-              [item.menu_item_id, restaurantId]
+              [menuItemId, restaurantId]
             );
             if (curStockRows.length > 0) {
               const prevStock = parseFloat(curStockRows[0].current_stock || 0);
               const newStock = Math.max(0, prevStock - itemQuantity);
               await connection.execute(
                 'UPDATE menu_items SET current_stock = ? WHERE id = ? AND restaurant_id = ?',
-                [newStock, item.menu_item_id, restaurantId]
+                [newStock, menuItemId, restaurantId]
               );
               await connection.execute(
                 `INSERT INTO stock_logs (restaurant_id, menu_item_id, user_name, adjustment_type, quantity, previous_stock, new_stock, reason)
                  VALUES (?, ?, ?, 'sale', ?, ?, ?, ?)`,
-                [restaurantId, item.menu_item_id, cashier_name || 'POS Cashier', itemQuantity, prevStock, newStock, `Order #${uniqueOrderNumber}`]
+                [restaurantId, menuItemId, cashier_name || 'POS Cashier', itemQuantity, prevStock, newStock, `Order #${uniqueOrderNumber}`]
               );
             }
           }

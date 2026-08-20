@@ -51,7 +51,12 @@ class UserRepository {
 
   static async findById(id) {
     const [rows] = await pool.execute(
-      'SELECT id, restaurant_id, name, username, email, role, is_active, must_change_password, is_verified, active_session_id FROM users WHERE id = ?',
+      `SELECT u.id, u.restaurant_id, u.name, u.username, u.email, u.role, u.is_active, 
+              u.must_change_password, u.is_verified, u.active_session_id,
+              r.name as restaurant_name, r.logo_url as restaurant_logo_url 
+       FROM users u 
+       LEFT JOIN restaurants r ON u.restaurant_id = r.id 
+       WHERE u.id = ?`,
       [id]
     );
     return rows[0];
