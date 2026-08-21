@@ -18,6 +18,7 @@ const inventoryRoutes = require('./routes/inventory_routes');
 const agentRoutes = require('./routes/agent_routes');
 const syncRoutes = require('./routes/sync_routes');
 const profileRoutes = require('./routes/profile_routes');
+const cashierRoutes = require('./routes/cashier_routes');
 
 const { apiLimiter, authLimiter } = require('./middlewares/rate_limiter_middleware');
 
@@ -111,6 +112,7 @@ app.use('/api/settings/receipt', receiptRoutes);
 app.use('/api/settings/profile', profileRoutes);
 app.use('/api/agent', agentRoutes);
 app.use('/api/sync', syncRoutes);
+app.use('/api/cashier', cashierRoutes);
 
 const ThemeController = require('./controllers/theme_controller');
 app.get('/api/theme/config', ThemeController.getTheme);

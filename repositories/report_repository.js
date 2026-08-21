@@ -62,7 +62,7 @@ class ReportRepository {
       'COALESCE(SUM(tax_amount), 0) as totalTax, ' +
       'COALESCE(SUM(discount_amount), 0) as totalDiscount, ' +
       'COUNT(id) as totalOrders ' +
-      'FROM orders WHERE restaurant_id = ? AND created_at >= ? AND created_at <= ? AND order_status != "cancelled"',
+      'FROM orders WHERE restaurant_id = ? AND created_at >= ? AND created_at <= ? AND (order_status != "cancelled" OR order_status IS NULL)',
       [restaurantId, dateFrom, dateTo]
     );
     return rows[0];
@@ -70,10 +70,10 @@ class ReportRepository {
 
   static async getPaymentBreakdown(restaurantId, dateFrom, dateTo) {
     const [rows] = await pool.execute(
-      'SELECT payment_mode, COALESCE(SUM(total_amount), 0) as totalAmount, COUNT(id) as orderCount ' +
+      'SELECT LOWER(COALESCE(payment_mode, "cash")) as payment_mode, COALESCE(SUM(total_amount), 0) as totalAmount, COUNT(id) as orderCount ' +
       'FROM orders ' +
-      'WHERE restaurant_id = ? AND created_at >= ? AND created_at <= ? AND order_status != "cancelled" ' +
-      'GROUP BY payment_mode',
+      'WHERE restaurant_id = ? AND created_at >= ? AND created_at <= ? AND (order_status != "cancelled" OR order_status IS NULL) ' +
+      'GROUP BY LOWER(COALESCE(payment_mode, "cash"))',
       [restaurantId, dateFrom, dateTo]
     );
     return rows;

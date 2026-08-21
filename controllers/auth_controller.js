@@ -36,7 +36,8 @@ class AuthController {
       }
 
       let activeShiftId = null;
-      if (user.role === 'cashier' && user.restaurant_id) {
+      const isShiftRole = ['cashier', 'admin', 'manager', 'owner'].includes((user.role || '').toLowerCase());
+      if (isShiftRole && user.restaurant_id) {
         let shift = await UserRepository.getOpenShift(user.restaurant_id, user.id);
         if (!shift) {
           activeShiftId = await UserRepository.openShift(user.restaurant_id, user.id, {
@@ -409,11 +410,13 @@ class AuthController {
       if (user && user.id) {
         await pool.query('UPDATE users SET active_session_id = NULL WHERE id = ?', [user.id]);
       }
-      if (user && user.role === 'cashier' && user.restaurant_id) {
+      const userRole = (user?.role || '').toLowerCase();
+      const isShiftRole = ['cashier', 'admin', 'manager', 'owner'].includes(userRole);
+      if (user && isShiftRole && user.restaurant_id) {
         const shift = await UserRepository.getOpenShift(user.restaurant_id, user.id);
         if (shift) {
           await UserRepository.closeShift(shift.id, user.restaurant_id);
-          await SuperAdminRepository.addAuditLog(user.restaurant_id, user.id, 'SHIFT_CLOSE', `Closed cashier shift. Collections synced.`, ipAddress);
+          await SuperAdminRepository.addAuditLog(user.restaurant_id, user.id, 'SHIFT_CLOSE', `Closed cashier/staff shift. Collections synced.`, ipAddress);
         }
       }
       return res.json({ message: 'Logout successful' });
@@ -446,7 +449,9 @@ class AuthController {
       }
 
       let activeShiftId = decoded.shift_id;
-      if (user.role === 'cashier' && user.restaurant_id) {
+      const refUserRole = (user.role || '').toLowerCase();
+      const refIsShiftRole = ['cashier', 'admin', 'manager', 'owner'].includes(refUserRole);
+      if (refIsShiftRole && user.restaurant_id) {
         const shift = await UserRepository.getOpenShift(user.restaurant_id, user.id);
         activeShiftId = shift ? shift.id : null;
       }

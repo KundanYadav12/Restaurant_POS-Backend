@@ -1,4 +1,5 @@
 const OrderRepository = require('../repositories/order_repository');
+const UserRepository = require('../repositories/user_repository');
 const PrinterRepository = require('../repositories/printer_repository');
 const SuperAdminRepository = require('../repositories/superadmin_repository');
 const PrinterService = require('../services/printer_service');
@@ -367,15 +368,48 @@ class OrderController {
   static async getShiftSummary(req, res) {
     try {
       const restaurantId = req.user.restaurant_id;
-      const shiftId = req.user.shift_id;
+      let shiftId = req.user.shift_id;
 
       if (!shiftId) {
-        return res.status(400).json({ error: 'No active shift found.' });
+        const openShift = await UserRepository.getOpenShift(restaurantId, req.user.id);
+        if (openShift) {
+          shiftId = openShift.id;
+        }
+      }
+
+      if (!shiftId) {
+        return res.json({
+          id: null,
+          starting_cash: 0,
+          total_sales: 0,
+          total_orders: 0,
+          cash_sales: 0,
+          upi_sales: 0,
+          card_sales: 0,
+          wallet_sales: 0,
+          other_sales: 0,
+          status: 'closed',
+          opened_at: null,
+          closed_at: null
+        });
       }
 
       const shift = await OrderRepository.getShiftSummary(restaurantId, shiftId);
       if (!shift) {
-        return res.status(404).json({ error: 'Shift not found.' });
+        return res.json({
+          id: shiftId,
+          starting_cash: 0,
+          total_sales: 0,
+          total_orders: 0,
+          cash_sales: 0,
+          upi_sales: 0,
+          card_sales: 0,
+          wallet_sales: 0,
+          other_sales: 0,
+          status: 'open',
+          opened_at: null,
+          closed_at: null
+        });
       }
 
       return res.json({
