@@ -84,44 +84,50 @@ class OrderRepository {
         const dateStr = `${year}${month}${day}`;
         const datePrefix = `ORD-${dateStr}-`;
 
-        // Concurrency-Safe Atomic Sequence Generator (Deadlock-Free MySQL LAST_INSERT_ID Pattern)
+        // Concurrency-Safe Atomic Sequence Generator
         const getNextSequence = async () => {
-          // 1. Try atomic increment if sequence row already exists for (restaurantId, dateStr)
-          const [updateResult] = await connection.execute(
-            'UPDATE order_sequences SET last_seq = LAST_INSERT_ID(last_seq + 1) WHERE restaurant_id = ? AND order_date = ?',
-            [restaurantId, dateStr]
-          );
-
-          if (updateResult.affectedRows > 0) {
-            return updateResult.insertId;
-          }
-
-          // 2. Initial order of the day: check highest existing sequence number from orders table
-          const [maxOrd] = await connection.execute(
-            'SELECT unique_order_number FROM orders WHERE restaurant_id = ? AND unique_order_number LIKE ? ORDER BY id DESC LIMIT 1',
-            [restaurantId, `${datePrefix}%`]
-          );
-          let startSeq = 0;
-          if (maxOrd.length > 0) {
-            const parts = maxOrd[0].unique_order_number.split('-');
-            const lastSeqNum = parseInt(parts[parts.length - 1], 10);
-            if (!isNaN(lastSeqNum)) startSeq = lastSeqNum;
-          }
-
-          // 3. Insert or update initial sequence row
+          // 1. Ensure a row exists in order_sequences for (restaurantId, dateStr)
           await connection.execute(
-            'INSERT INTO order_sequences (restaurant_id, order_date, last_seq) VALUES (?, ?, ?) ' +
-            'ON DUPLICATE KEY UPDATE last_seq = GREATEST(last_seq, VALUES(last_seq))',
-            [restaurantId, dateStr, startSeq]
-          );
-
-          // 4. Increment and return the sequence number
-          const [seqResult] = await connection.execute(
-            'UPDATE order_sequences SET last_seq = LAST_INSERT_ID(last_seq + 1) WHERE restaurant_id = ? AND order_date = ?',
+            'INSERT IGNORE INTO order_sequences (restaurant_id, order_date, last_seq) VALUES (?, ?, 0)',
             [restaurantId, dateStr]
           );
 
-          return seqResult.insertId;
+          // 2. Lock and fetch current last_seq for this date & restaurant
+          const [seqRows] = await connection.execute(
+            'SELECT last_seq FROM order_sequences WHERE restaurant_id = ? AND order_date = ? FOR UPDATE',
+            [restaurantId, dateStr]
+          );
+
+          let currentSeq = parseInt(seqRows[0]?.last_seq || 0, 10);
+
+          // 3. If currentSeq is 0, check max existing order sequence number for today from orders table
+          if (currentSeq === 0) {
+            const [maxOrd] = await connection.execute(
+              'SELECT unique_order_number FROM orders WHERE restaurant_id = ? AND unique_order_number LIKE ? ORDER BY id DESC',
+              [restaurantId, `${datePrefix}%`]
+            );
+            for (const row of maxOrd) {
+              const parts = (row.unique_order_number || '').split('-');
+              const num = parseInt(parts[parts.length - 1], 10);
+              if (!isNaN(num) && num > currentSeq) {
+                currentSeq = num;
+              }
+            }
+          }
+
+          // 4. Calculate next sequence number (bump by attempt offset on retries to guarantee progress)
+          let nextSeq = currentSeq + 1;
+          if (attempts > 1) {
+            nextSeq = Math.max(nextSeq, currentSeq + (attempts - 1));
+          }
+
+          // 5. Save updated last_seq
+          await connection.execute(
+            'UPDATE order_sequences SET last_seq = ? WHERE restaurant_id = ? AND order_date = ?',
+            [nextSeq, restaurantId, dateStr]
+          );
+
+          return nextSeq;
         };
 
         const seq = await getNextSequence();

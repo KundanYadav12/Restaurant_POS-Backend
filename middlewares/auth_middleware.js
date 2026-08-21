@@ -33,7 +33,6 @@ async function authenticateToken(req, res, next) {
     // Single-Device Login Enforcement:
     // Every valid session must have active_session_id matching decoded.session_id.
     if (!user.active_session_id || !decoded.session_id || user.active_session_id !== decoded.session_id) {
-      console.warn(`[Single Device Lock] User ID ${user.id} (@${user.username}) token rejected (DB session: ${user.active_session_id}, Token session: ${decoded.session_id}).`);
       return res.status(401).json({
         error: 'You have been logged out because your account was logged in from another device.',
         code: 'LOGGED_IN_ELSEWHERE'
@@ -74,7 +73,9 @@ async function authenticateToken(req, res, next) {
 
     next();
   } catch (err) {
-    console.error('JWT Verification Error:', err.message);
+    if (err.name !== 'JsonWebTokenError' && err.name !== 'TokenExpiredError') {
+      console.warn('[JWT Auth Middleware]', err.message);
+    }
     return res.status(401).json({ error: 'Token is invalid or has expired.', code: 'TOKEN_EXPIRED' });
   }
 }
