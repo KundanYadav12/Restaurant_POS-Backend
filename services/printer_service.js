@@ -94,12 +94,33 @@ class PrinterService {
   }
 
   /**
+   * Helper to safely format two columns (left-aligned label, right-aligned value)
+   * guaranteed to fit exact width without wrapping or clipping the right value.
+   */
+  static formatTwoColumns(leftText, rightText, lineWidth) {
+    const left = String(leftText || '');
+    const right = String(rightText || '');
+    const rightLen = right.length;
+    
+    if (rightLen >= lineWidth) {
+      return right.substring(0, lineWidth);
+    }
+
+    const maxLeftLen = lineWidth - rightLen - 1; // leave at least 1 space
+    const truncatedLeft = left.length > maxLeftLen ? left.substring(0, maxLeftLen) : left;
+    const padLength = lineWidth - rightLen;
+
+    return truncatedLeft.padEnd(padLength, ' ') + right;
+  }
+
+  /**
    * Build dynamic in-memory ESC/POS payload for Order Receipt
    */
   static buildReceiptPayload(order, items, restaurant, printer, receiptSettings = null) {
     const s = receiptSettings || {};
     const paperWidth = s.paper_size === '58mm' ? '58' : (printer ? printer.paper_width : '80');
     const cols = this.getWidthCols(paperWidth);
+    const is58mm = cols === 32;
     const divider = '-'.repeat(cols) + '\n';
     const doubleDivider = '='.repeat(cols) + '\n';
 
@@ -111,7 +132,11 @@ class PrinterService {
     cmds += alignCmd;
 
     const restName = s.restaurant_name || restaurant.name || 'RESTAURANT POS';
-    cmds += CMD_BOLD_ON + CMD_FONT_DOUBLE + restName.toUpperCase() + '\n' + CMD_FONT_NORMAL + CMD_BOLD_OFF;
+    cmds += CMD_BOLD_ON;
+    if (!is58mm) {
+      cmds += CMD_FONT_DOUBLE;
+    }
+    cmds += restName.toUpperCase() + '\n' + CMD_FONT_NORMAL + CMD_BOLD_OFF;
 
     if (s.branch_name) cmds += `${s.branch_name}\n`;
     const addr = s.address !== undefined ? s.address : restaurant.address;
@@ -152,22 +177,23 @@ class PrinterService {
     cmds += divider;
 
     // Items List
-    if (cols === 32) {
-      cmds += `Item Name            Qty   Price\n`;
+    if (is58mm) {
+      cmds += CMD_BOLD_ON + `ITEM NAME       QTY      PRICE\n` + CMD_BOLD_OFF;
       cmds += divider;
       items.forEach(item => {
-        const itemLine = `${item.name.substring(0, 18).padEnd(18, ' ')} ${item.quantity.toString().padStart(3, ' ')} ${parseFloat(item.price * item.quantity).toFixed(2).padStart(8, ' ')}\n`;
+        const itemTotal = parseFloat((item.price || 0) * (item.quantity || 1)).toFixed(2);
+        const itemLine = `${(item.name || '').substring(0, 16).padEnd(16, ' ')} ${(item.quantity || 1).toString().padStart(4, ' ')} ${itemTotal.padStart(10, ' ')}\n`;
         cmds += itemLine;
         if (item.notes) cmds += `  * ${item.notes}\n`;
       });
     } else {
-      cmds += `Item Name                  Qty     Price      Total\n`;
+      cmds += CMD_BOLD_ON + `ITEM NAME                  QTY     PRICE      TOTAL\n` + CMD_BOLD_OFF;
       cmds += divider;
       items.forEach(item => {
-        const name = item.name.substring(0, 22).padEnd(22, ' ');
-        const qty = item.quantity.toString().padStart(5, ' ');
-        const price = parseFloat(item.price).toFixed(2).padStart(9, ' ');
-        const total = (item.quantity * item.price).toFixed(2).padStart(10, ' ');
+        const name = (item.name || '').substring(0, 22).padEnd(22, ' ');
+        const qty = (item.quantity || 1).toString().padStart(5, ' ');
+        const price = parseFloat(item.price || 0).toFixed(2).padStart(9, ' ');
+        const total = parseFloat((item.quantity || 1) * (item.price || 0)).toFixed(2).padStart(10, ' ');
         cmds += `${name} ${qty} ${price} ${total}\n`;
         if (item.notes) cmds += `  * Notes: ${item.notes}\n`;
       });
@@ -176,23 +202,40 @@ class PrinterService {
     cmds += divider;
 
     // Financial Totals
-    const labelWidth = cols - 12;
     const subtotalVal = isNaN(parseFloat(order.subtotal)) ? 0 : parseFloat(order.subtotal);
     const discountVal = isNaN(parseFloat(order.discount_amount)) ? 0 : parseFloat(order.discount_amount);
-    const taxVal = isNaN(parseFloat(order.tax_amount)) ? 0 : parseFloat(order.tax_amount);
+    
+    let taxVal = parseFloat(
+      order.tax_amount ?? order.taxAmount ?? order.tax ?? order.gst_amount ?? order.gstAmount ?? 0
+    );
+    if (taxVal === 0 && subtotalVal > 0 && (s.gst_enabled === 1 || s.gst_enabled === true || s.gst_enabled === 'true')) {
+      const rate = parseFloat(s.gst_percentage || s.gst_rate || order.tax_rate || 5);
+      taxVal = parseFloat((subtotalVal * (rate / 100)).toFixed(2));
+    }
+
     const totalVal = isNaN(parseFloat(order.total_amount)) ? 0 : parseFloat(order.total_amount);
 
-    cmds += `Subtotal:`.padEnd(labelWidth, ' ') + `Rs. ${subtotalVal.toFixed(2).padStart(8, ' ')}\n`;
+    cmds += PrinterService.formatTwoColumns('Subtotal:', `Rs. ${subtotalVal.toFixed(2)}`, cols) + '\n';
     if (discountVal > 0) {
-      cmds += `Discount:`.padEnd(labelWidth, ' ') + `-Rs.${discountVal.toFixed(2).padStart(8, ' ')}\n`;
+      const discLabel = order.discount_type === 'percentage' ? `Discount (${order.discount_value}%):` : 'Discount:';
+      cmds += PrinterService.formatTwoColumns(discLabel, `-Rs. ${discountVal.toFixed(2)}`, cols) + '\n';
     }
     
-    if (s.show_tax_details !== 0) {
-      cmds += `GST Tax:`.padEnd(labelWidth, ' ') + `Rs. ${taxVal.toFixed(2).padStart(8, ' ')}\n`;
+    if (s.show_tax_details !== 0 && taxVal > 0) {
+      const gstRate = parseFloat(s.gst_percentage || s.gst_rate || order.tax_rate || 5);
+      const halfTax = (taxVal / 2).toFixed(2);
+      const halfRate = (gstRate / 2).toString();
+      cmds += PrinterService.formatTwoColumns(`GST Tax (${gstRate}%):`, `Rs. ${taxVal.toFixed(2)}`, cols) + '\n';
+      cmds += PrinterService.formatTwoColumns(`  CGST (${halfRate}%):`, `Rs. ${halfTax}`, cols) + '\n';
+      cmds += PrinterService.formatTwoColumns(`  SGST (${halfRate}%):`, `Rs. ${halfTax}`, cols) + '\n';
     }
 
     cmds += divider;
-    cmds += CMD_BOLD_ON + CMD_FONT_DOUBLE + `TOTAL:`.padEnd(cols - 14, ' ') + `Rs. ${totalVal.toFixed(2)}` + '\n' + CMD_FONT_NORMAL + CMD_BOLD_OFF;
+    cmds += CMD_BOLD_ON;
+    if (!is58mm) {
+      cmds += CMD_FONT_DOUBLE;
+    }
+    cmds += PrinterService.formatTwoColumns('TOTAL:', `Rs. ${totalVal.toFixed(2)}`, cols) + '\n' + CMD_FONT_NORMAL + CMD_BOLD_OFF;
     cmds += doubleDivider;
 
     // Footer
