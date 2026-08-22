@@ -440,7 +440,7 @@ class AuthController {
       }
 
       // Single-Device Login Enforcement on Refresh Token
-      if (!user.active_session_id || !decoded.session_id || user.active_session_id !== decoded.session_id) {
+      if (user.active_session_id && decoded.session_id && user.active_session_id !== decoded.session_id) {
         console.warn(`[Single Device Lock] User ID ${user.id} logged in on another device. Rejecting refresh token.`);
         return res.status(401).json({
           error: 'You have been logged out because your account was logged in from another device.',

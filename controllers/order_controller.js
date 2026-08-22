@@ -67,10 +67,18 @@ class OrderController {
       const result = await OrderRepository.create(restaurantId, orderData, items);
       const createdOrder = result.order;
 
-      await SuperAdminRepository.addAuditLog(restaurantId, cashierId, 'ORDER_PLACE', `Placed order #${createdOrder.unique_order_number} for Rs. ${createdOrder.total_amount} [Status: ${orderStatus}]`, req.ip);
+      try {
+        await SuperAdminRepository.addAuditLog(restaurantId, cashierId, 'ORDER_PLACE', `Placed order #${createdOrder.unique_order_number} for Rs. ${createdOrder.total_amount} [Status: ${orderStatus}]`, req.ip);
+      } catch (aErr) {
+        console.warn('[Order Audit Log Warning]:', aErr.message);
+      }
 
       // Enqueue print jobs to database print_queue
-      PrinterService.enqueueOrderPrintJobs(restaurantId, createdOrder.id, print_actions);
+      try {
+        PrinterService.enqueueOrderPrintJobs(restaurantId, createdOrder.id, print_actions);
+      } catch (pErr) {
+        console.error('[Order Placement Print Enqueue Warning]:', pErr.message);
+      }
 
       // Return immediately
       return res.status(201).json({
@@ -80,7 +88,7 @@ class OrderController {
       });
     } catch (err) {
       console.error('Order creation error:', err);
-      return res.status(500).json({ error: 'Failed to process order. Please try again.' });
+      return res.status(500).json({ error: err.message || 'Failed to process order. Please try again.' });
     }
   }
 

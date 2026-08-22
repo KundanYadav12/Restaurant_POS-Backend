@@ -175,46 +175,54 @@ class OrderRepository {
 
           // Auto-deduct inventory stock for tracked menu items
           if (menuItemId) {
-            const [curStockRows] = await connection.execute(
-              'SELECT current_stock FROM menu_items WHERE id = ? AND restaurant_id = ?',
-              [menuItemId, restaurantId]
-            );
-            if (curStockRows.length > 0) {
-              const prevStock = parseFloat(curStockRows[0].current_stock || 0);
-              const newStock = Math.max(0, prevStock - itemQuantity);
-              await connection.execute(
-                'UPDATE menu_items SET current_stock = ? WHERE id = ? AND restaurant_id = ?',
-                [newStock, menuItemId, restaurantId]
+            try {
+              const [curStockRows] = await connection.execute(
+                'SELECT current_stock FROM menu_items WHERE id = ? AND restaurant_id = ?',
+                [menuItemId, restaurantId]
               );
-              await connection.execute(
-                `INSERT INTO stock_logs (restaurant_id, menu_item_id, user_name, adjustment_type, quantity, previous_stock, new_stock, reason)
-                 VALUES (?, ?, ?, 'sale', ?, ?, ?, ?)`,
-                [restaurantId, menuItemId, cashier_name || 'POS Cashier', itemQuantity, prevStock, newStock, `Order #${uniqueOrderNumber}`]
-              );
+              if (curStockRows.length > 0) {
+                const prevStock = parseFloat(curStockRows[0].current_stock || 0);
+                const newStock = Math.max(0, prevStock - itemQuantity);
+                await connection.execute(
+                  'UPDATE menu_items SET current_stock = ? WHERE id = ? AND restaurant_id = ?',
+                  [newStock, menuItemId, restaurantId]
+                );
+                await connection.execute(
+                  `INSERT INTO stock_logs (restaurant_id, menu_item_id, user_name, adjustment_type, quantity, previous_stock, new_stock, reason)
+                   VALUES (?, ?, ?, 'sale', ?, ?, ?, ?)`,
+                  [restaurantId, menuItemId, cashier_name || 'POS Cashier', itemQuantity, prevStock, newStock, `Order #${uniqueOrderNumber}`]
+                ).catch(sErr => console.warn('[Stock Log Warning]:', sErr.message));
+              }
+            } catch (invErr) {
+              console.warn('[Inventory Stock Update Warning]:', invErr.message);
             }
           }
         }
 
         // 5. Update Cashier Shift sales (Only if completed)
         if (orderStatus === 'completed' && safeCashierShiftId) {
-          const cashAdd = payment_mode === 'cash' ? safeTotalAmount : 0;
-          const upiAdd = ['upi', 'gpay', 'phonepe', 'paytm'].includes(payment_mode) ? safeTotalAmount : 0;
-          const cardAdd = ['card', 'credit', 'debit'].includes(payment_mode) ? safeTotalAmount : 0;
-          const walletAdd = payment_mode === 'wallet' ? safeTotalAmount : 0;
-          const otherAdd = (!['cash', 'upi', 'gpay', 'phonepe', 'paytm', 'card', 'credit', 'debit', 'wallet'].includes(payment_mode)) ? safeTotalAmount : 0;
+          try {
+            const cashAdd = payment_mode === 'cash' ? safeTotalAmount : 0;
+            const upiAdd = ['upi', 'gpay', 'phonepe', 'paytm'].includes(payment_mode) ? safeTotalAmount : 0;
+            const cardAdd = ['card', 'credit', 'debit'].includes(payment_mode) ? safeTotalAmount : 0;
+            const walletAdd = payment_mode === 'wallet' ? safeTotalAmount : 0;
+            const otherAdd = (!['cash', 'upi', 'gpay', 'phonepe', 'paytm', 'card', 'credit', 'debit', 'wallet'].includes(payment_mode)) ? safeTotalAmount : 0;
 
-          await connection.execute(
-            'UPDATE cashier_shifts SET ' +
-            'total_bills = total_bills + 1, ' +
-            'cash_collected = cash_collected + ?, ' +
-            'upi_collected = upi_collected + ?, ' +
-            'card_collected = card_collected + ?, ' +
-            'wallet_collected = wallet_collected + ?, ' +
-            'other_collected = other_collected + ?, ' +
-            'total_collected = total_collected + ? ' +
-            'WHERE id = ? AND restaurant_id = ?',
-            [cashAdd, upiAdd, cardAdd, walletAdd, otherAdd, safeTotalAmount, safeCashierShiftId, restaurantId]
-          );
+            await connection.execute(
+              'UPDATE cashier_shifts SET ' +
+              'total_bills = total_bills + 1, ' +
+              'cash_collected = cash_collected + ?, ' +
+              'upi_collected = upi_collected + ?, ' +
+              'card_collected = card_collected + ?, ' +
+              'wallet_collected = wallet_collected + ?, ' +
+              'other_collected = other_collected + ?, ' +
+              'total_collected = total_collected + ? ' +
+              'WHERE id = ? AND restaurant_id = ?',
+              [cashAdd, upiAdd, cardAdd, walletAdd, otherAdd, safeTotalAmount, safeCashierShiftId, restaurantId]
+            );
+          } catch (shiftErr) {
+            console.warn('[Cashier Shift Update Warning]:', shiftErr.message);
+          }
         }
 
         // Commit transaction

@@ -31,12 +31,17 @@ async function authenticateToken(req, res, next) {
     const user = rows[0];
 
     // Single-Device Login Enforcement:
-    // Every valid session must have active_session_id matching decoded.session_id.
-    if (!user.active_session_id || !decoded.session_id || user.active_session_id !== decoded.session_id) {
+    // If the DB user has an active_session_id AND the token contains a session_id, verify match.
+    if (user.active_session_id && decoded.session_id && user.active_session_id !== decoded.session_id) {
       return res.status(401).json({
         error: 'You have been logged out because your account was logged in from another device.',
         code: 'LOGGED_IN_ELSEWHERE'
       });
+    }
+
+    // Auto-repair missing active_session_id in DB if token contains session_id
+    if (!user.active_session_id && decoded.session_id) {
+      pool.query('UPDATE users SET active_session_id = ? WHERE id = ?', [decoded.session_id, user.id]).catch(() => {});
     }
 
     const userRole = (user.role || '').toLowerCase();
